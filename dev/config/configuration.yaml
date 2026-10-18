@@ -13,39 +13,45 @@ input_boolean:
     name: Therme (simulated relay)
     icon: mdi:water-boiler
 
-# Sliders driving the simulated TRVs
+# Sliders driving the simulated TRVs (start with realistic values; -1 = valve not ready)
 input_number:
   tobi_valve:
+    initial: 38
     name: Tobi valve
     min: -1
     max: 100
     step: 1
     unit_of_measurement: "%"
   timon_valve:
+    initial: 18
     name: Timon valve
     min: -1
     max: 100
     step: 1
     unit_of_measurement: "%"
   kuche_valve:
+    initial: 6
     name: Küche valve
     min: -1
     max: 100
     step: 1
     unit_of_measurement: "%"
   tobi_temp:
+    initial: 21.5
     name: Tobi temperature
     min: 10
     max: 30
     step: 0.1
     unit_of_measurement: "°C"
   timon_temp:
+    initial: 20.1
     name: Timon temperature
     min: 10
     max: 30
     step: 0.1
     unit_of_measurement: "°C"
   kuche_temp:
+    initial: 19.4
     name: Küche temperature
     min: 10
     max: 30

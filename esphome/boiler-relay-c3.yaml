@@ -5,6 +5,8 @@
 # Wiring (module has transistor + flyback diode on board):
 #   module VCC -> 3V3, GND -> GND, IN -> D2 (GPIO4)
 #   relay COM + NC -> boiler RT terminals
+#   CHECK FIRST: does the boiler heat with the terminals closed (most) or open?
+#     closed -> COM + NC, open -> COM + NO. Keep `inverted: true` in both cases.
 # Hardware failsafe: NC is closed while the coil is unpowered, so a dead ESP, missing
 # power or unflashed board = boiler demand ON (TRVs regulate). Therefore the pin is
 # inverted: "Boiler" ON = coil off = contact closed; "Boiler" OFF = coil energized.

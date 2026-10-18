@@ -130,6 +130,7 @@ Minimum:
 | 3.3 V relay module, e.g. Relay-T73 V2.1 (SRD-03VDC) | VCC → 3V3, GND → GND, IN → GPIO. Contacts **COM + NC** on the boiler's room-thermostat terminals, pin `inverted: true` |
 | *Only for a bare SRD-03VDC:* NPN (2N2222 / BC337) + 1 kΩ + 1N4148 | The ~120 mA coil is too much for a GPIO; a module already has this driver |
 | USB power supply 5 V | |
+| *With a display:* MP1584 buck converter, set to **3.3 V** | Separate 3.3 V rail for relay module, TFT (VCC and BL) and rotary encoder. From the XIAO's own 3V3 the backlight dims while the relay coil (~100 mA) is on. Input from the XIAO's 5V pin (USB-C VBUS) – one USB supply (≥ 1 A) for everything. Set the output with a multimeter **before** connecting anything – new modules often ship at a higher voltage |
 
 Why COM + NC: the contact is closed while the relay coil is unpowered, so a dead ESP, a power cut
 or an unflashed board means *boiler on* — the TRVs keep regulating the rooms. The pin is inverted so
@@ -155,10 +156,10 @@ The ESPHome files are layered packages – pick the node that matches your hardw
 
 Rotary controls: turn flips Status → room 1 → … → room N → Status; press opens the menu with the
 *Automatik* switch (set `allow_automatic_toggle: "false"` in the TFT package to disable it). In the
-menu, turn moves between *Automatik* and *OK*; 15 s idle returns to the status page. The screen
-turns off after 30 s without input (`screen_timeout`); the first turn or press only wakes it, and it
-wakes by itself when the failsafe engages. If Home Assistant
-does not allow the device's actions, the switch flips back to the real state.
+menu, turn moves between *Automatic* and *OK*; 30 s idle (`home_timeout`) returns to the status page. If Home
+Assistant does not allow the device's actions, the switch flips back to the real state. The display
+is English by default; `language: de` in the TFT package vars switches it to German. The backlight
+(BL/BLK) is wired to 3V3 – PWM dimming flickers – so the screen stays on.
 
 The room list is the `rooms` attribute of `sensor.<name>_status` – a compact JSON list
 (`n` name, `t` temperature, `v` valve %, `r` role: d demand / h holding / c closed / o offline) that any
@@ -167,6 +168,96 @@ display can use.
 Safety: check the boiler manual for the voltage on the thermostat terminals (24 V or 230 V). For 230 V,
 use a relay module rated for mains with proper isolation and an enclosure; never put mains on the ESP
 side.
+
+## Wiring
+
+Pins as used in the ESPHome files (Seeed XIAO ESP32-C3).
+
+### Minimum: XIAO + relay (`boiler-relay-c3.yaml`)
+
+```
+ USB 5 V ──► XIAO ESP32-C3 (USB-C)
+
+             XIAO ESP32-C3                     Relay module (Relay-T73 V2.1, 3.3 V)
+          ┌─────────────────┐                ┌──────────────────────────┐
+          │ 3V3 ────────────┼───────────────►│ VCC                      │
+          │ GND ────────────┼───────────────►│ GND                      │
+          │ D2  (GPIO4) ────┼───────────────►│ IN                       │
+          └─────────────────┘                │ COM ──────────────┐      │
+                                             │ NC  ────────────┐ │      │
+                                             │ NO  (unused)    │ │      │
+                                             └─────────────────┼─┼──────┘
+                                                               │ │
+                                              Boiler room-thermostat terminals
+                                              (RT / 3-4 / …, potential-free contact)
+```
+
+COM + NC: relay coil off = contact closed = boiler on, so a dead ESP or power cut fails to heating.
+
+> **Check your boiler first: does it heat when the thermostat terminals are *bridged* (closed) or
+> *open*?** Test it before wiring – briefly bridge the terminals (or disconnect the existing thermostat)
+> and watch the burner.
+>
+> | Boiler heats when terminals are … | Relay contacts | ESPHome |
+> | --- | --- | --- |
+> | **closed** (most boilers) | **COM + NC** | `inverted: true` |
+> | **open** | **COM + NO** | `inverted: true` (unchanged) |
+>
+> Both keep the failsafe: with the relay coil unpowered (dead ESP, power cut) the contact is in the
+> state that makes the boiler heat, and the ESPHome switch *Boiler* ON still means coil off.
+
+### With display + rotary + MP1584 (`boiler-relay-c3-tft-rotary.yaml`)
+
+*3V3 rail* = MP1584 OUT+. *GND* = common ground (XIAO GND, MP1584 IN-/OUT-, all modules).
+
+```
+ USB-C 5 V ──► XIAO ESP32-C3 (USB-C)
+
+             XIAO ESP32-C3                      MP1584 buck converter (set to 3.3 V!)
+          ┌─────────────────┐                ┌─────────────────┐
+          │ 5V (VBUS)    ───┼───────────────►│ IN+             │
+          │                 │                │ IN-  ◄── GND    │
+          │                 │                │ OUT+ ───────────┼──► 3V3 rail
+          │                 │                │ OUT- ◄── GND    │
+          │                 │                └─────────────────┘
+          │                 │                   1.8" TFT ST7735 (128×160, SPI)
+          │                 │                ┌─────────────────┐
+          │ D8  (GPIO8)  ───┼───────────────►│ SCK / SCL       │
+          │ D10 (GPIO10) ───┼───────────────►│ SDA / MOSI      │
+          │ D1  (GPIO3)  ───┼───────────────►│ CS              │
+          │ D3  (GPIO5)  ───┼───────────────►│ DC / A0         │
+          │ D6  (GPIO21) ───┼───────────────►│ RES / RST       │
+          │                 │                │ VCC  ◄── 3V3 rail
+          │                 │                │ BL   ◄── 3V3 rail
+          │                 │                │ GND  ◄── GND    │
+          │                 │                └─────────────────┘
+          │                 │                   Rotary encoder (KY-040 / EC11)
+          │                 │                ┌─────────────────┐
+          │ D4  (GPIO6)  ◄──┼────────────────┤ CLK / A         │
+          │ D5  (GPIO7)  ◄──┼────────────────┤ DT  / B         │
+          │ D0  (GPIO2)  ◄──┼────────────────┤ SW              │
+          │                 │                │ +    ◄── 3V3 rail
+          │                 │                │ GND  ◄── GND    │
+          │                 │                └─────────────────┘
+          │                 │                   Relay module (3.3 V)
+          │                 │                ┌─────────────────┐
+          │ D2  (GPIO4)  ───┼───────────────►│ IN              │
+          │                 │                │ VCC  ◄── 3V3 rail
+          │                 │                │ GND  ◄── GND    │
+          │                 │                │ COM + NC ───────┼──► Boiler RT terminals
+          └─────────────────┘                └─────────────────┘
+```
+
+- Set the MP1584 output to 3.3 V with a multimeter **before** connecting anything.
+- Relay contacts: **COM + NC** if the boiler heats on closed terminals, **COM + NO** if it heats on
+  open terminals – see the check above.
+- One USB-C supply (5 V, ≥ 1 A) powers everything: the MP1584 takes its input from the XIAO's 5V
+  (VBUS) pin.
+- Relay, TFT (incl. backlight) and encoder all run on the MP1584 3.3 V rail, so the backlight does
+  not dim when the relay switches; the XIAO's own 3V3 pin stays unused.
+- GPIO2 (encoder button) and GPIO8 (TFT clock) are strapping pins: fine here, just don't hold the
+  button while powering up.
+- Boiler terminals: check the voltage in the boiler manual (24 V or 230 V) and use a relay rated for it.
 
 ## ESPHome relay watchdog
 

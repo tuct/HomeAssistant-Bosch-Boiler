@@ -1,5 +1,7 @@
 # Boiler relay (XIAO ESP32-C3 + relay module) with a 1.8" ST7735 TFT.
 # Same node as boiler-relay-c3.yaml plus the display package; wiring in each file.
+# Power the relay module and the TFT from an MP1584 set to 3.3 V (common GND), not from
+# the XIAO's 3V3 pin - otherwise the backlight dims whenever the relay is on.
 
 packages:
   base: !include boiler-relay-c3.yaml

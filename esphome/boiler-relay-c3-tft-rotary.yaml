@@ -1,7 +1,9 @@
 # Boiler relay (XIAO ESP32-C3 + relay module) + 1.8" ST7735 TFT + rotary encoder menu.
 # Layers: base (relay, watchdog) -> tft (status screen, menu drawing) -> rotary (menu input).
-# Wiring is in each included file. In Home Assistant enable the ESPHome device option
-# "Allow the device to perform Home Assistant actions" so the menu can change settings.
+# Wiring is in each included file and in the README. Power relay module + TFT from an
+# MP1584 set to 3.3 V (common GND), otherwise the backlight dims whenever the relay is on.
+# In Home Assistant enable the ESPHome device option "Allow the device to perform Home
+# Assistant actions" so the menu can change settings.
 
 packages:
   base: !include boiler-relay-c3.yaml

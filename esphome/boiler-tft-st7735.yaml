@@ -1,15 +1,17 @@
 # Optional 1.8" TFT (ST7735, 128x160, SPI) with an LVGL UI for the boiler relay node.
-#   Status page: boiler state, Boiler Demand status, max valve opening + average room
-#                temperature, rooms (count / calling for heat / offline), HA connection /
-#                FAILSAFE, time.
+# Looks like the Boiler Demand dashboard card (same Material Design icons).
+#   Status page: flame badge + boiler state, controller status, demand, max valve opening,
+#                rooms (count / calling for heat / offline), average room temperature.
+#   Bottom bar:  time (left), WiFi + Home Assistant icons (right; grey blinking while
+#                connecting, white when connected), amber with FAILSAFE when it engages.
+#                Shown on the status and room pages, hidden in the menu.
 #   Room page:   one room at a time (name, n/N, temperature, valve bar, role). The room list
 #                comes from Home Assistant at runtime (attribute `rooms` of the status
 #                sensor), so new rooms show up without reflashing.
-#   Menu page:   Automatik on/off (if allow_automatic_toggle is "true").
-#   Screen:      backlight off after screen_timeout (30 s) without input; the first turn or
-#                press only wakes it. Wakes by itself when the failsafe engages.
+#   Menu page:   Automatic on/off (if allow_automatic_toggle is "true").
 # Navigation needs an input device, e.g. boiler-rotary.yaml: turn = Status -> room 1 -> ...
 # -> Status, press = menu. Without one, the status page is shown.
+# Language: English by default, `language: de` for German.
 #
 # Include with (pins below are for the Seeed XIAO ESP32-C3):
 #   packages:
@@ -17,16 +19,19 @@
 #       file: boiler-tft-st7735.yaml
 #       vars:
 #         relay_id: boiler_relay
+#         language: en   # or de
 #
 # Wiring (XIAO ESP32-C3 -> TFT):
 #   D8 (GPIO8)  -> SCK / SCL     D10 (GPIO10) -> SDA / MOSI
 #   D1 (GPIO3)  -> CS            D3 (GPIO5)   -> DC / A0
-#   D6 (GPIO21) -> RES / RST     D7 (GPIO20)  -> BL / LED (or tie BL to 3V3)
+#   D6 (GPIO21) -> RES / RST     BL / BLK / LED -> 3V3 (PWM dimming flickers)
 #   VCC -> 3V3, GND -> GND
+# Power: feed TFT VCC/BL and the relay module from an MP1584 buck converter set to 3.3 V
+# (common GND with the XIAO). On the XIAO's own 3V3 the backlight dims while the relay is on.
 # Panel variants differ: if the picture is shifted by a few pixels, add
 #   dimensions: {width: 128, height: 160, offset_width: 2, offset_height: 1}
 # if red/blue are swapped use `color_order: rgb`, if colours are negative `invert_colors: true`.
-# The Automatik switch needs the ESPHome device option "Allow the device to perform Home
+# The Automatic switch needs the ESPHome device option "Allow the device to perform Home
 # Assistant actions"; without it the switch flips back to the real state after a moment.
 
 defaults:
@@ -35,18 +40,21 @@ defaults:
   tft_cs_pin: GPIO3
   tft_dc_pin: GPIO5
   tft_reset_pin: GPIO21
-  tft_backlight_pin: GPIO20
+  language: en
   status_entity: sensor.heating_status
+  demand_entity: binary_sensor.heating_heat_demand
   max_valve_entity: sensor.heating_max_valve_opening
   automatic_entity: switch.heating_automatic_control
   allow_automatic_toggle: "true"
   failsafe_minutes: "10"
-  menu_timeout: 15s
-  screen_timeout: 30s
+  home_timeout: 30s  # idle time before menu / room page returns to the status page
 
 json:
 
 globals:
+  - id: ui_de  # German texts (language: de)
+    type: bool
+    initial_value: "false"
   - id: ui_rooms_json
     type: std::string
     initial_value: '"[]"'
@@ -87,11 +95,8 @@ globals:
     initial_value: "-1"
   - id: ui_room_role
     type: std::string
-  # Screen sleep: backlight off after screen_timeout; the first input only wakes it.
-  - id: ui_screen_on
-    type: bool
-    initial_value: "true"
-  - id: ui_swallow_click
+  # Toggles every 500 ms; connection icons blink with it while not connected.
+  - id: ui_blink
     type: bool
     initial_value: "false"
 
@@ -99,30 +104,32 @@ esphome:
   on_boot:
     - priority: -100
       then:
-        # Menu widgets get their own input group, so the encoder never reaches them
-        # from the status/room pages (and vice versa).
         - lambda: |-
+            id(ui_de) = std::string("${language}") == "de";
+            // Menu widgets get their own input group, so the encoder never reaches them
+            // from the status/room pages (and vice versa).
             id(ui_menu_group) = lv_group_create();
             lv_group_add_obj(id(ui_menu_group), id(sw_auto));
             lv_group_add_obj(id(ui_menu_group), id(btn_back));
+        # Static texts in the chosen language
+        - lvgl.label.update:
+            id: lbl_menu_title
+            text: !lambda |-
+              return std::string(id(ui_de) ? "Menü" : "Menu");
+        - lvgl.label.update:
+            id: lbl_menu_auto
+            text: !lambda |-
+              return std::string(id(ui_de) ? "Automatik" : "Automatic");
+        - lvgl.label.update:
+            id: lbl_menu_hint
+            text: !lambda |-
+              return std::string(id(ui_de) ? "Aus = Therme manuell / Notbetrieb" : "Off = boiler manual / failsafe");
 
 spi:
   clk_pin:
     number: ${tft_sck_pin}
     ignore_strapping_warning: true  # GPIO8: fine as SPI clock
   mosi_pin: ${tft_mosi_pin}
-
-output:
-  - platform: ledc
-    pin: ${tft_backlight_pin}
-    id: tft_backlight_pwm
-
-light:
-  - platform: monochromatic
-    output: tft_backlight_pwm
-    name: "Display Backlight"
-    id: tft_backlight
-    restore_mode: ALWAYS_ON
 
 time:
   - platform: homeassistant
@@ -171,6 +178,10 @@ binary_sensor:
           id: sw_auto
           state:
             checked: !lambda return x;
+  - platform: homeassistant
+    id: tft_ha_demand
+    entity_id: ${demand_entity}
+    internal: true
 
 sensor:
   - platform: homeassistant
@@ -184,6 +195,11 @@ font:
     size: 30
     glyphsets: [GF_Latin_Core]
     ignore_missing_glyphs: true  # only combining accents, not used
+  - file: "gfonts://Roboto@700"
+    id: tft_font_title
+    size: 20
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true
   - file: "gfonts://Roboto"
     id: tft_font
     size: 14
@@ -194,6 +210,40 @@ font:
     size: 11
     glyphsets: [GF_Latin_Core]
     ignore_missing_glyphs: true
+  - file: "gfonts://Roboto"
+    id: tft_font_bar
+    size: 13
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true
+  # Material Design Icons, same as the Home Assistant card.
+  - file:
+      type: web
+      url: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: mdi_bar
+    size: 16
+    glyphs:
+      - "\U000F05A9"  # wifi
+      - "\U000F07D0"  # home-assistant
+  - file:
+      type: web
+      url: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: mdi_big
+    size: 26
+    glyphs:
+      - "\U000F0238"  # fire
+      - "\U000F1722"  # fire-off
+  - file:
+      type: web
+      url: https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: mdi_small
+    size: 14
+    glyphs:
+      - "\U000F050F"  # thermometer
+      - "\U000F1066"  # valve
+      - "\U000F06A9"  # robot
+      - "\U000F07D0"  # home-assistant
+      - "\U000F0026"  # alert
+      - "\U000F05A9"  # wifi
 
 display:
   - platform: mipi_spi
@@ -247,7 +297,7 @@ script:
             - lvgl.label.update:
                 id: lbl_room_idx
                 text: !lambda |-
-                  char buf[12];
+                  char buf[24];  // fits any two ints, no -Wformat-truncation
                   snprintf(buf, sizeof(buf), "%d/%d", id(ui_room_index) + 1, id(ui_room_count));
                   return std::string(buf);
             - lvgl.label.update:
@@ -263,52 +313,25 @@ script:
             - lvgl.label.update:
                 id: lbl_room_valve
                 text: !lambda |-
-                  if (id(ui_room_valve) < 0) return std::string("Ventil offline");
-                  char buf[20];
-                  snprintf(buf, sizeof(buf), "Ventil %d %%", id(ui_room_valve));
+                  if (id(ui_room_valve) < 0) return std::string(id(ui_de) ? "Ventil offline" : "Valve offline");
+                  char buf[24];
+                  snprintf(buf, sizeof(buf), id(ui_de) ? "Ventil %d %%" : "Valve %d %%", id(ui_room_valve));
                   return std::string(buf);
             - lvgl.label.update:
                 id: lbl_room_role
                 text: !lambda |-
                   const std::string &r = id(ui_room_role);
-                  return std::string(r == "d" ? "fordert Wärme an" : r == "h" ? "hält Therme an" : r == "c" ? "zu" : "keine Daten");
+                  if (id(ui_de))
+                    return std::string(r == "d" ? "fordert Wärme an" : r == "h" ? "hält Therme an" : r == "c" ? "zu" : "keine Daten");
+                  return std::string(r == "d" ? "calling for heat" : r == "h" ? "keeping boiler on" : r == "c" ? "closed" : "no data");
                 text_color: !lambda |-
                   const std::string &r = id(ui_room_role);
                   return r == "d" ? lv_color_hex(0xFF8100) : r == "o" ? lv_color_hex(0xF5A623) : lv_color_hex(0x8B8D98);
             - lvgl.page.show: page_room
 
-  - id: ui_wake
-    then:
-      - if:
-          condition:
-            lambda: return !id(ui_screen_on);
-          then:
-            - lambda: id(ui_screen_on) = true;
-            - lvgl.resume:
-            - light.turn_on:
-                id: tft_backlight
-                transition_length: 200ms
-
-  - id: ui_sleep
-    then:
-      - script.execute: ui_show_status
-      - lambda: id(ui_screen_on) = false;
-      - light.turn_off:
-          id: tft_backlight
-          transition_length: 500ms
-      - delay: 600ms
-      - lvgl.pause:
-
   - id: ui_show_menu
     then:
-      - if:
-          # The press that woke the screen does nothing else.
-          condition:
-            lambda: return id(ui_swallow_click);
-          then:
-            - lambda: id(ui_swallow_click) = false;
-          else:
-            - script.execute: ui_open_menu
+      - script.execute: ui_open_menu
 
   - id: ui_open_menu
     then:
@@ -323,6 +346,7 @@ script:
                 id: sw_auto
                 state:
                   checked: !lambda return id(tft_ha_automatic).state;
+            - lvgl.widget.hide: bottom_bar
             - lvgl.page.show: page_menu
 
   - id: ui_show_status
@@ -331,6 +355,7 @@ script:
           id(ui_menu_open) = false;
           id(ui_room_index) = -1;
           if (id(ui_indev) != nullptr) lv_indev_set_group(id(ui_indev), lv_group_get_default());
+      - lvgl.widget.show: bottom_bar
       - lvgl.page.show: page_main
 
   # After toggling, show the real HA state again (covers "actions not allowed").
@@ -347,72 +372,127 @@ script:
 interval:
   - interval: 1s
     then:
-      # Failsafe is worth seeing: wake the screen when it engages.
-      - if:
-          condition:
-            lambda: return !id(ui_screen_on) && id(boiler_watchdog_minutes_without_ha) == ${failsafe_minutes};
-          then:
-            - script.execute: ui_wake
+      # Flame badge + boiler line (like the card)
+      - lvgl.widget.update:
+          id: badge
+          bg_color: !lambda |-
+            return id(${relay_id}).state ? lv_color_hex(0x3D2410) : lv_color_hex(0x282828);
+      - lvgl.label.update:
+          id: lbl_flame
+          text: !lambda |-
+            return std::string(id(${relay_id}).state ? "\U000F0238" : "\U000F1722");
+          text_color: !lambda |-
+            return id(${relay_id}).state ? lv_color_hex(0xFF8100) : lv_color_hex(0x6F6F6F);
       - lvgl.label.update:
           id: lbl_boiler
           text: !lambda |-
-            return std::string(id(${relay_id}).state ? "HEIZT" : "AUS");
-          text_color: !lambda |-
-            return id(${relay_id}).state ? lv_color_hex(0xE5484D) : lv_color_hex(0x8B8D98);
+            const bool on = id(${relay_id}).state;
+            return std::string(id(ui_de) ? (on ? "Heizt" : "Aus") : (on ? "Heating" : "Off"));
+          y: !lambda |-
+            // Centre on the 40 px badge (y 8..48); move up when a status line is shown.
+            const std::string s = id(tft_ha_status).has_state() ? id(tft_ha_status).state : "";
+            const bool on = id(${relay_id}).state;
+            const bool no_status = s.empty() || (on && s == "heating") || (!on && s == "idle");
+            return no_status ? 16 : 10;
       - lvgl.label.update:
           id: lbl_status
           text: !lambda |-
-            if (!id(tft_ha_status).has_state()) return std::string("-");
+            if (!id(tft_ha_status).has_state()) return std::string("");
             const std::string s = id(tft_ha_status).state;
-            if (s == "idle") return std::string("Bereit");
-            if (s == "heating") return std::string("Wärmeanforderung");
-            if (s == "waiting_min_on") return std::string("Mindestlaufzeit");
-            if (s == "waiting_min_off") return std::string("Mindestpause");
-            if (s == "valves_offline") return std::string("Ventile offline");
-            if (s == "failsafe") return std::string("Notbetrieb");
-            if (s == "switch_unavailable") return std::string("Schalter fehlt");
-            if (s == "disabled") return std::string("Automatik aus");
+            const bool on = id(${relay_id}).state;
+            // "Heating"/"Idle" just repeat the boiler line (same rule as the card).
+            if ((on && s == "heating") || (!on && s == "idle")) return std::string("");
+            const bool de = id(ui_de);
+            if (s == "idle") return std::string(de ? "Bereit" : "Idle");
+            if (s == "heating") return std::string(de ? "Wärmeanforderung" : "Heating");
+            if (s == "waiting_min_on") return std::string(de ? "Mindestlaufzeit" : "Minimum on time");
+            if (s == "waiting_min_off") return std::string(de ? "Mindestpause" : "Minimum off time");
+            if (s == "valves_offline") return std::string(de ? "Ventile offline" : "Valves offline");
+            if (s == "failsafe") return std::string(de ? "Notbetrieb aktiv" : "Failsafe active");
+            if (s == "switch_unavailable") return std::string(de ? "Schalter fehlt" : "Switch unavailable");
+            if (s == "disabled") return std::string(de ? "Automatik aus" : "Automatic off");
             return s;
+          text_color: !lambda |-
+            const std::string s = id(tft_ha_status).state;
+            return (s == "failsafe" || s == "valves_offline") ? lv_color_hex(0xF5A623) : lv_color_hex(0x8B8D98);
+      # Row 1: demand dot + text | rooms calling/total
+      - lvgl.widget.update:
+          id: dot_demand
+          bg_color: !lambda |-
+            return id(tft_ha_demand).state ? lv_color_hex(0xFF8100) : lv_color_hex(0x6F6F6F);
+      - lvgl.label.update:
+          id: lbl_demand
+          text: !lambda |-
+            const bool d = id(tft_ha_demand).state;
+            return std::string(id(ui_de) ? (d ? "Anforderung" : "Keine Anf.") : (d ? "Demand" : "No demand"));
       - lvgl.label.update:
           id: lbl_valve
           text: !lambda |-
             const float v = id(tft_ha_max_valve).state;
-            const float t = id(ui_rooms_avg_temp);
-            char buf[48];
-            std::string out = "max. Ventil ";
-            if (id(tft_ha_max_valve).has_state() && !std::isnan(v)) { snprintf(buf, sizeof(buf), "%.0f %%", v); out += buf; }
-            else out += "–";
-            if (!std::isnan(t)) { snprintf(buf, sizeof(buf), "  ·  Ø %.1f°", t); out += buf; }
-            return out;
+            char buf[32];
+            if (id(tft_ha_max_valve).has_state() && !std::isnan(v))
+              snprintf(buf, sizeof(buf), id(ui_de) ? "max. Ventil %.0f %%" : "max valve %.0f %%", v);
+            else
+              snprintf(buf, sizeof(buf), "%s", id(ui_de) ? "max. Ventil –" : "max valve –");
+            return std::string(buf);
+      # Row 2: average temperature | max valve
       - lvgl.label.update:
           id: lbl_rooms
           text: !lambda |-
+            // calling for heat / total, e.g. "2/3 rooms"; amber if a room is offline
             const int n = id(ui_room_count);
-            if (n == 0) return std::string("keine Räume");
-            char buf[64];
-            int len = snprintf(buf, sizeof(buf), "%d %s", n, n == 1 ? "Raum" : "Räume");
-            if (id(ui_rooms_calling) > 0) len += snprintf(buf + len, sizeof(buf) - len, " · %d heizen", id(ui_rooms_calling));
-            if (id(ui_rooms_offline) > 0) snprintf(buf + len, sizeof(buf) - len, " · %d offline", id(ui_rooms_offline));
+            const bool de = id(ui_de);
+            if (n == 0) return std::string(de ? "keine Räume" : "no rooms");
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%d/%d %s", id(ui_rooms_calling), n,
+                     de ? (n == 1 ? "Raum" : "Räume") : (n == 1 ? "room" : "rooms"));
             return std::string(buf);
           text_color: !lambda |-
             return id(ui_rooms_offline) > 0 ? lv_color_hex(0xF5A623) : lv_color_hex(0x8B8D98);
+      - lvgl.label.update:
+          id: lbl_avg
+          text: !lambda |-
+            const float t = id(ui_rooms_avg_temp);
+            if (std::isnan(t)) return std::string("");
+            char buf[20];
+            snprintf(buf, sizeof(buf), id(ui_de) ? "Ø %.1f°" : "avg %.1f°", t);
+            return std::string(buf);
       - lvgl.label.update:
           id: lbl_time
           text: !lambda |-
             auto now = id(tft_time).now();
             return now.is_valid() ? now.strftime("%H:%M") : std::string("--:--");
+      # Bottom bar: amber with FAILSAFE when the watchdog switched the boiler on
       - lvgl.widget.update:
-          id: footer
-          bg_color: !lambda |-
-            const int m = id(boiler_watchdog_minutes_without_ha);
-            return m >= ${failsafe_minutes} ? lv_color_hex(0xF5A623) : m > 0 ? lv_color_hex(0x5A4A1A) : lv_color_hex(0x1C3D2B);
+          id: bottom_bar
+          bg_opa: !lambda |-
+            return id(boiler_watchdog_minutes_without_ha) >= ${failsafe_minutes} ? LV_OPA_COVER : LV_OPA_TRANSP;
       - lvgl.label.update:
-          id: lbl_conn
+          id: lbl_failsafe
           text: !lambda |-
-            const int m = id(boiler_watchdog_minutes_without_ha);
-            return std::string(m >= ${failsafe_minutes} ? "FAILSAFE - kein HA" : m > 0 ? "HA getrennt" : "HA verbunden");
+            return std::string(id(boiler_watchdog_minutes_without_ha) >= ${failsafe_minutes} ? "FAILSAFE" : "");
+      - lvgl.label.update:
+          id: lbl_time
           text_color: !lambda |-
-            return id(boiler_watchdog_minutes_without_ha) >= ${failsafe_minutes} ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+            return id(boiler_watchdog_minutes_without_ha) >= ${failsafe_minutes} ? lv_color_hex(0x000000) : lv_color_hex(0x8B8D98);
+
+  # Connection icons: white = connected, grey blinking = connecting.
+  - interval: 500ms
+    then:
+      - lambda: id(ui_blink) = !id(ui_blink);
+      - lvgl.label.update:
+          id: lbl_wifi
+          text_color: !lambda |-
+            const bool fs = id(boiler_watchdog_minutes_without_ha) >= ${failsafe_minutes};
+            if (wifi::global_wifi_component->is_connected()) return fs ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+            return id(ui_blink) ? lv_color_hex(0x6F6F6F) : lv_color_hex(0x2A2A2A);
+      - lvgl.label.update:
+          id: lbl_ha
+          text_color: !lambda |-
+            const bool fs = id(boiler_watchdog_minutes_without_ha) >= ${failsafe_minutes};
+            if (api::global_api_server->is_connected_with_state_subscription())
+              return fs ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+            return id(ui_blink) ? lv_color_hex(0x6F6F6F) : lv_color_hex(0x2A2A2A);
 
 lvgl:
   displays: [tft]
@@ -422,20 +502,13 @@ lvgl:
   text_font: tft_font
   text_color: 0xFFFFFF
   on_idle:
-    - timeout: ${menu_timeout}
+    - timeout: ${home_timeout}
       then:
         - if:
             condition:
               lambda: return id(ui_menu_open) || id(ui_room_index) >= 0;
             then:
               - script.execute: ui_show_status
-    - timeout: ${screen_timeout}
-      then:
-        - if:
-            condition:
-              lambda: return id(ui_screen_on);
-            then:
-              - script.execute: ui_sleep
   style_definitions:
     - id: st_focus
       outline_width: 2
@@ -447,6 +520,51 @@ lvgl:
       border_width: 0
       shadow_width: 0
       outline_width: 0
+    - id: st_small_grey
+      text_font: tft_font_small
+      text_color: 0x8B8D98
+  top_layer:
+    widgets:
+      - obj:
+          id: bottom_bar
+          align: BOTTOM_MID
+          width: 160
+          height: 20
+          radius: 0
+          border_width: 0
+          pad_all: 0
+          bg_color: 0xF5A623
+          bg_opa: TRANSP
+          scrollable: false
+          clickable: false
+          widgets:
+            - label:
+                id: lbl_time
+                align: LEFT_MID
+                x: 6
+                text_font: tft_font_bar
+                text_color: 0x8B8D98
+                text: "--:--"
+            - label:
+                id: lbl_failsafe
+                align: CENTER
+                text_font: tft_font_bar
+                text_color: 0x000000
+                text: ""
+            - label:
+                id: lbl_wifi
+                align: RIGHT_MID
+                x: -26
+                text_font: mdi_bar
+                text_color: 0x6F6F6F
+                text: "\U000F05A9"
+            - label:
+                id: lbl_ha
+                align: RIGHT_MID
+                x: -6
+                text_font: mdi_bar
+                text_color: 0x6F6F6F
+                text: "\U000F07D0"
   pages:
     - id: page_main
       bg_color: 0x000000
@@ -464,59 +582,79 @@ lvgl:
               outline_width: 0
             on_click:
               - script.execute: ui_show_menu
-        - label:
-            id: lbl_title
-            x: 4
-            y: 2
-            text: "Heizung"
-        - label:
-            id: lbl_time
-            align: TOP_RIGHT
-            x: -4
-            y: 2
-            text: "--:--"
-        - label:
-            id: lbl_boiler
-            align: TOP_MID
-            y: 24
-            text_font: tft_font_big
-            text_color: 0x8B8D98
-            text: "AUS"
-        - label:
-            id: lbl_status
-            align: TOP_MID
-            y: 60
-            text: "-"
-        - label:
-            id: lbl_valve
-            align: TOP_MID
-            y: 78
-            text_font: tft_font_small
-            text_color: 0x8B8D98
-            text: ""
-        - label:
-            id: lbl_rooms
-            align: TOP_MID
-            y: 92
-            text_font: tft_font_small
-            text_color: 0x8B8D98
-            text: ""
+        # Flame badge
         - obj:
-            id: footer
-            align: BOTTOM_MID
-            width: 160
-            height: 20
-            radius: 0
+            id: badge
+            x: 6
+            y: 8
+            width: 40
+            height: 40
+            radius: 20
             border_width: 0
             pad_all: 0
-            bg_color: 0x1C3D2B
+            bg_color: 0x282828
             scrollable: false
             widgets:
               - label:
-                  id: lbl_conn
+                  id: lbl_flame
                   align: CENTER
-                  text_font: tft_font_small
-                  text: "HA verbunden"
+                  text_font: mdi_big
+                  text_color: 0x6F6F6F
+                  text: "\U000F1722"
+        - label:
+            id: lbl_boiler
+            x: 54
+            y: 9
+            text_font: tft_font_title
+            text: "Off"
+        - label:
+            id: lbl_status
+            x: 54
+            y: 34
+            width: 102
+            long_mode: DOT
+            text_font: tft_font_small
+            text_color: 0x8B8D98
+            text: ""
+        # Row 1: demand dot + text | rooms calling/total
+        - obj:
+            id: dot_demand
+            x: 6
+            y: 62
+            width: 7
+            height: 7
+            radius: 4
+            border_width: 0
+            pad_all: 0
+            bg_color: 0x6F6F6F
+            scrollable: false
+        - label:
+            id: lbl_demand
+            x: 17
+            y: 58
+            styles: st_small_grey
+            text: ""
+        - label:
+            id: lbl_rooms
+            align: TOP_RIGHT
+            x: -6
+            y: 58
+            styles: st_small_grey
+            text: ""
+        # Row 2: average temperature | max valve
+        - label:
+            id: lbl_avg
+            x: 6
+            y: 76
+            styles: st_small_grey
+            text: ""
+        - label:
+            id: lbl_valve
+            align: TOP_RIGHT
+            x: -6
+            y: 76
+            styles: st_small_grey
+            text: ""
 
     - id: page_room
       bg_color: 0x000000
@@ -536,30 +674,36 @@ lvgl:
               - script.execute: ui_show_menu
         - label:
             id: lbl_room_name
-            x: 4
+            x: 6
             y: 2
-            width: 120
+            width: 116
             long_mode: DOT
             text: ""
         - label:
             id: lbl_room_idx
             align: TOP_RIGHT
-            x: -4
+            x: -6
             y: 4
-            text_font: tft_font_small
-            text_color: 0x8B8D98
+            styles: st_small_grey
             text: ""
+        - label:
+            x: 22
+            y: 30
+            text_font: mdi_small
+            text_color: 0x8B8D98
+            text: "\U000F050F"  # thermometer
         - label:
             id: lbl_room_temp
             align: TOP_MID
-            y: 26
+            x: 8
+            y: 20
             text_font: tft_font_big
             text: ""
         - bar:
             id: bar_room
             align: TOP_MID
-            y: 70
-            width: 140
+            y: 60
+            width: 144
             height: 8
             min_value: 0
             max_value: 100
@@ -568,14 +712,20 @@ lvgl:
             indicator:
               bg_color: 0x6F6F6F
         - label:
+            x: 22
+            y: 72
+            text_font: mdi_small
+            text_color: 0x8B8D98
+            text: "\U000F1066"  # valve
+        - label:
             id: lbl_room_valve
-            align: TOP_MID
-            y: 84
+            x: 42
+            y: 72
             text: ""
         - label:
             id: lbl_room_role
             align: TOP_MID
-            y: 104
+            y: 90
             text_font: tft_font_small
             text_color: 0x8B8D98
             text: ""
@@ -584,13 +734,20 @@ lvgl:
       bg_color: 0x000000
       widgets:
         - label:
-            x: 4
-            y: 2
-            text: "Menü"
+            id: lbl_menu_title
+            x: 6
+            y: 3
+            text: "Menu"
         - label:
             x: 6
+            y: 43
+            text_font: mdi_small
+            text: "\U000F06A9"  # robot
+        - label:
+            id: lbl_menu_auto
+            x: 26
             y: 42
-            text: "Automatik"
+            text: "Automatic"
         - switch:
             id: sw_auto
             align: TOP_RIGHT
@@ -608,11 +765,12 @@ lvgl:
                     entity_id: ${automatic_entity}
               - script.execute: ui_sync_automatic
         - label:
+            id: lbl_menu_hint
             x: 6
             y: 72
-            text_font: tft_font_small
-            text_color: 0x8B8D98
-            text: "Aus = Therme manuell / Notbetrieb"
+            width: 148
+            styles: st_small_grey
+            text: ""
         - button:
             id: btn_back
             align: BOTTOM_RIGHT
