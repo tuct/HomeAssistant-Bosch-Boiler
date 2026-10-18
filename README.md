@@ -141,7 +141,7 @@ Optional:
 
 | Part | Notes |
 | --- | --- |
-| 1.8" TFT, ST7735, 128×160, SPI | LVGL UI. Status page: boiler state, Boiler Demand status, max valve opening, HA connection / FAILSAFE, time. Room page: one room at a time (temperature, valve bar, role) – the room list comes from HA at runtime, no reflash when rooms change. Menu: Automatik on/off. Package `esphome/boiler-tft-st7735.yaml`, complete node `esphome/boiler-relay-c3-tft.yaml` (wiring in the file) |
+| 1.8" TFT, ST7735, 128×160, SPI | LVGL UI. Status page: boiler state, Boiler Demand status, max valve opening, average temperature, rooms (count / calling / offline), HA connection / FAILSAFE, time. Room page: one room at a time (temperature, valve bar, role) – the room list comes from HA at runtime, no reflash when rooms change. Menu: Automatik on/off. Package `esphome/boiler-tft-st7735.yaml`, complete node `esphome/boiler-relay-c3-tft.yaml` (wiring in the file) |
 | Rotary encoder with button (KY-040 / EC11), on top of the TFT | Turn to flip Status → rooms, press for the Automatik menu. Package `esphome/boiler-rotary.yaml`, complete node `esphome/boiler-relay-c3-tft-rotary.yaml`. Needs the ESPHome device option *Allow the device to perform Home Assistant actions* |
 | OLED (SH1106 / SSD1306), touch screen | Local status and manual override, see `esphome/mista-heatcontrol.yaml` |
 
@@ -155,7 +155,9 @@ The ESPHome files are layered packages – pick the node that matches your hardw
 
 Rotary controls: turn flips Status → room 1 → … → room N → Status; press opens the menu with the
 *Automatik* switch (set `allow_automatic_toggle: "false"` in the TFT package to disable it). In the
-menu, turn moves between *Automatik* and *OK*; 15 s idle returns to the status page. If Home Assistant
+menu, turn moves between *Automatik* and *OK*; 15 s idle returns to the status page. The screen
+turns off after 30 s without input (`screen_timeout`); the first turn or press only wakes it, and it
+wakes by itself when the failsafe engages. If Home Assistant
 does not allow the device's actions, the switch flips back to the real state.
 
 The room list is the `rooms` attribute of `sensor.<name>_status` – a compact JSON list

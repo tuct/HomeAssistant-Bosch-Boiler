@@ -10,7 +10,7 @@
  * Boiler Demand device, with its "valve_opening" and "room_temperature" entities.
  */
 
-const CARD_VERSION = "0.4.0";
+const CARD_VERSION = "0.6.0";
 const DOMAIN = "boiler_demand";
 const MAIN_MODEL = "Valve-based boiler control";
 const ROOM_MODEL = "Room";
@@ -32,6 +32,10 @@ const STRINGS = {
     show_controls: "Show automatic switch and thresholds",
     demand: "Demand",
     no_demand: "No demand",
+    rooms: "rooms",
+    room: "room",
+    calling: "calling",
+    avg: "avg",
   },
   de: {
     heating: "Heizt",
@@ -49,6 +53,10 @@ const STRINGS = {
     show_controls: "Automatik-Schalter und Schwellen anzeigen",
     demand: "Anforderung",
     no_demand: "Keine Anforderung",
+    rooms: "Räume",
+    room: "Raum",
+    calling: "heizen",
+    avg: "Ø",
   },
 };
 
@@ -202,6 +210,26 @@ class BoilerDemandCard extends HTMLElement {
               ${esc(this._fmt(e.status))}${remaining != null ? ` · ${esc(remaining)} ${esc(tr(hass, "left"))}` : ""}
             </div>`;
 
+    // Room summary: count, calling for heat (demand/holding), offline, average temperature.
+    const roles = model.rooms.map((room) => {
+      const id = room.entities.valve_opening;
+      return (id && hass.states[id]?.attributes?.role) || "offline";
+    });
+    const calling = roles.filter((r) => r === "demand" || r === "holding").length;
+    const offline = roles.filter((r) => r === "offline").length;
+    const temps = model.rooms
+      .map((room) => (room.entities.room_temperature ? numberState(hass, room.entities.room_temperature) : null))
+      .filter((t) => t !== null);
+    const tempUnit = model.rooms
+      .map((room) => hass.states[room.entities.room_temperature]?.attributes?.unit_of_measurement)
+      .find(Boolean) || "°C";
+    const avgTemp = temps.length ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : null;
+    const roomStat = model.rooms.length ? `
+          <div class="stat"><b>${model.rooms.length}</b> ${esc(tr(hass, model.rooms.length === 1 ? "room" : "rooms"))}${
+            calling ? ` · <b>${calling}</b> ${esc(tr(hass, "calling"))}` : ""}${
+            offline ? ` · <span class="warn-text"><b>${offline}</b> ${esc(tr(hass, "offline"))}</span>` : ""}</div>
+          ${avgTemp !== null ? `<div class="stat">${esc(tr(hass, "avg"))} <b>${esc(avgTemp)} ${esc(tempUnit)}</b></div>` : ""}` : "";
+
     const rooms = model.rooms.map((room) => {
       const valveId = room.entities.valve_opening;
       const tempId = room.entities.room_temperature;
@@ -249,6 +277,7 @@ class BoilerDemandCard extends HTMLElement {
           <div class="stat" data-entity="${esc(e.heat_demand || "")}"><span class="dot ${demandOn ? "on" : ""}"></span>${esc(tr(hass, demandOn ? "demand" : "no_demand"))}</div>
           <div class="stat" data-entity="${esc(e.max_valve_opening || "")}">${esc(tr(hass, "max"))} <b>${maxValve === null ? "–" : `${Math.round(maxValve)} %`}</b></div>
           <div class="stat" data-entity="${esc(e.boiler_starts_today || "")}"><b>${esc(starts)}</b> ${esc(tr(hass, "starts"))}</div>
+          ${roomStat}
         </div>
         ${rooms ? `<div class="rooms">${rooms}</div>` : ""}
         ${controls}
@@ -300,6 +329,7 @@ const STYLE = `<style>
   .status.muted { color: var(--disabled-text-color, #9e9e9e); }
   .stats { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--secondary-text-color); font-size: 0.9em; }
   .stat b { color: var(--primary-text-color); font-weight: 500; }
+  .warn-text, .warn-text b { color: var(--warning-color, #f5a623); }
   .dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
     background: var(--disabled-text-color, #9e9e9e);

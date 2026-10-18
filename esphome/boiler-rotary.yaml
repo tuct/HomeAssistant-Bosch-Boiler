@@ -3,6 +3,7 @@
 #                        press = menu
 #   menu                 turn = move between Automatik and OK, press = toggle / close
 #                        (15 s idle -> back to the status page)
+#   screen off           first turn or press only wakes the screen
 #
 # Needs boiler-tft-st7735.yaml (pages, navigation scripts).
 #
@@ -39,18 +40,31 @@ sensor:
       mode: { input: true, pullup: true }
     resolution: 1
     # Outside the menu, turning flips through the rooms (LVGL focus is used only in the menu).
+    # A turn while the screen is off only wakes it.
     on_clockwise:
       - if:
           condition:
-            lambda: return !id(ui_menu_open);
+            lambda: return !id(ui_screen_on);
           then:
-            - script.execute: ui_nav_next
+            - script.execute: ui_wake
+          else:
+            - if:
+                condition:
+                  lambda: return !id(ui_menu_open);
+                then:
+                  - script.execute: ui_nav_next
     on_anticlockwise:
       - if:
           condition:
-            lambda: return !id(ui_menu_open);
+            lambda: return !id(ui_screen_on);
           then:
-            - script.execute: ui_nav_prev
+            - script.execute: ui_wake
+          else:
+            - if:
+                condition:
+                  lambda: return !id(ui_menu_open);
+                then:
+                  - script.execute: ui_nav_prev
 
 binary_sensor:
   - platform: gpio
@@ -64,6 +78,14 @@ binary_sensor:
     filters:
       - delayed_on: 20ms
       - delayed_off: 20ms
+    # A press while the screen is off only wakes it (the click that follows is swallowed).
+    on_press:
+      - if:
+          condition:
+            lambda: return !id(ui_screen_on);
+          then:
+            - lambda: id(ui_swallow_click) = true;
+            - script.execute: ui_wake
 
 lvgl:
   encoders:

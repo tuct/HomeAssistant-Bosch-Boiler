@@ -1,10 +1,13 @@
 # Optional 1.8" TFT (ST7735, 128x160, SPI) with an LVGL UI for the boiler relay node.
-#   Status page: boiler state, Boiler Demand status, max valve opening, HA connection /
+#   Status page: boiler state, Boiler Demand status, max valve opening + average room
+#                temperature, rooms (count / calling for heat / offline), HA connection /
 #                FAILSAFE, time.
 #   Room page:   one room at a time (name, n/N, temperature, valve bar, role). The room list
 #                comes from Home Assistant at runtime (attribute `rooms` of the status
 #                sensor), so new rooms show up without reflashing.
 #   Menu page:   Automatik on/off (if allow_automatic_toggle is "true").
+#   Screen:      backlight off after screen_timeout (30 s) without input; the first turn or
+#                press only wakes it. Wakes by itself when the failsafe engages.
 # Navigation needs an input device, e.g. boiler-rotary.yaml: turn = Status -> room 1 -> ...
 # -> Status, press = menu. Without one, the status page is shown.
 #
@@ -39,6 +42,7 @@ defaults:
   allow_automatic_toggle: "true"
   failsafe_minutes: "10"
   menu_timeout: 15s
+  screen_timeout: 30s
 
 json:
 
@@ -49,6 +53,16 @@ globals:
   - id: ui_room_count
     type: int
     initial_value: "0"
+  # Summary for the status page: rooms calling for heat (demand/holding), offline, avg temp
+  - id: ui_rooms_calling
+    type: int
+    initial_value: "0"
+  - id: ui_rooms_offline
+    type: int
+    initial_value: "0"
+  - id: ui_rooms_avg_temp
+    type: float
+    initial_value: "NAN"
   # -1 = status page, 0..N-1 = room shown on the room page
   - id: ui_room_index
     type: int
@@ -73,6 +87,13 @@ globals:
     initial_value: "-1"
   - id: ui_room_role
     type: std::string
+  # Screen sleep: backlight off after screen_timeout; the first input only wakes it.
+  - id: ui_screen_on
+    type: bool
+    initial_value: "true"
+  - id: ui_swallow_click
+    type: bool
+    initial_value: "false"
 
 esphome:
   on_boot:
@@ -123,6 +144,17 @@ text_sensor:
           JsonDocument doc = json::parse_json(x);
           JsonArray rooms = doc.as<JsonArray>();
           id(ui_room_count) = rooms.isNull() ? 0 : rooms.size();
+          int calling = 0, offline = 0, temps = 0;
+          float sum = 0;
+          for (JsonObject r : rooms) {
+            const char *role = r["r"] | "o";
+            if (role[0] == 'd' || role[0] == 'h') calling++;
+            if (role[0] == 'o') offline++;
+            if (!r["t"].isNull()) { sum += r["t"].as<float>(); temps++; }
+          }
+          id(ui_rooms_calling) = calling;
+          id(ui_rooms_offline) = offline;
+          id(ui_rooms_avg_temp) = temps ? sum / temps : NAN;
       - if:
           condition:
             lambda: return id(ui_room_index) >= 0 && !id(ui_menu_open);
@@ -245,7 +277,40 @@ script:
                   return r == "d" ? lv_color_hex(0xFF8100) : r == "o" ? lv_color_hex(0xF5A623) : lv_color_hex(0x8B8D98);
             - lvgl.page.show: page_room
 
+  - id: ui_wake
+    then:
+      - if:
+          condition:
+            lambda: return !id(ui_screen_on);
+          then:
+            - lambda: id(ui_screen_on) = true;
+            - lvgl.resume:
+            - light.turn_on:
+                id: tft_backlight
+                transition_length: 200ms
+
+  - id: ui_sleep
+    then:
+      - script.execute: ui_show_status
+      - lambda: id(ui_screen_on) = false;
+      - light.turn_off:
+          id: tft_backlight
+          transition_length: 500ms
+      - delay: 600ms
+      - lvgl.pause:
+
   - id: ui_show_menu
+    then:
+      - if:
+          # The press that woke the screen does nothing else.
+          condition:
+            lambda: return id(ui_swallow_click);
+          then:
+            - lambda: id(ui_swallow_click) = false;
+          else:
+            - script.execute: ui_open_menu
+
+  - id: ui_open_menu
     then:
       - if:
           condition:
@@ -282,6 +347,12 @@ script:
 interval:
   - interval: 1s
     then:
+      # Failsafe is worth seeing: wake the screen when it engages.
+      - if:
+          condition:
+            lambda: return !id(ui_screen_on) && id(boiler_watchdog_minutes_without_ha) == ${failsafe_minutes};
+          then:
+            - script.execute: ui_wake
       - lvgl.label.update:
           id: lbl_boiler
           text: !lambda |-
@@ -306,10 +377,25 @@ interval:
           id: lbl_valve
           text: !lambda |-
             const float v = id(tft_ha_max_valve).state;
-            if (!id(tft_ha_max_valve).has_state() || std::isnan(v)) return std::string("");
-            char buf[40];
-            snprintf(buf, sizeof(buf), "max. Ventil %.0f %%  ·  %d Räume", v, id(ui_room_count));
+            const float t = id(ui_rooms_avg_temp);
+            char buf[48];
+            std::string out = "max. Ventil ";
+            if (id(tft_ha_max_valve).has_state() && !std::isnan(v)) { snprintf(buf, sizeof(buf), "%.0f %%", v); out += buf; }
+            else out += "–";
+            if (!std::isnan(t)) { snprintf(buf, sizeof(buf), "  ·  Ø %.1f°", t); out += buf; }
+            return out;
+      - lvgl.label.update:
+          id: lbl_rooms
+          text: !lambda |-
+            const int n = id(ui_room_count);
+            if (n == 0) return std::string("keine Räume");
+            char buf[64];
+            int len = snprintf(buf, sizeof(buf), "%d %s", n, n == 1 ? "Raum" : "Räume");
+            if (id(ui_rooms_calling) > 0) len += snprintf(buf + len, sizeof(buf) - len, " · %d heizen", id(ui_rooms_calling));
+            if (id(ui_rooms_offline) > 0) snprintf(buf + len, sizeof(buf) - len, " · %d offline", id(ui_rooms_offline));
             return std::string(buf);
+          text_color: !lambda |-
+            return id(ui_rooms_offline) > 0 ? lv_color_hex(0xF5A623) : lv_color_hex(0x8B8D98);
       - lvgl.label.update:
           id: lbl_time
           text: !lambda |-
@@ -343,6 +429,13 @@ lvgl:
               lambda: return id(ui_menu_open) || id(ui_room_index) >= 0;
             then:
               - script.execute: ui_show_status
+    - timeout: ${screen_timeout}
+      then:
+        - if:
+            condition:
+              lambda: return id(ui_screen_on);
+            then:
+              - script.execute: ui_sleep
   style_definitions:
     - id: st_focus
       outline_width: 2
@@ -392,12 +485,19 @@ lvgl:
         - label:
             id: lbl_status
             align: TOP_MID
-            y: 64
+            y: 60
             text: "-"
         - label:
             id: lbl_valve
             align: TOP_MID
-            y: 84
+            y: 78
+            text_font: tft_font_small
+            text_color: 0x8B8D98
+            text: ""
+        - label:
+            id: lbl_rooms
+            align: TOP_MID
+            y: 92
             text_font: tft_font_small
             text_color: 0x8B8D98
             text: ""
