@@ -121,6 +121,22 @@
       },
       "boiler_starts_today": {
         "name": "Brennerstarts heute"
+      },
+      "valve": {
+        "state_attributes": {
+          "source_entity": {
+            "name": "Quell-Entität"
+          },
+          "role": {
+            "name": "Rolle",
+            "state": {
+              "demand": "Anforderung",
+              "holding": "Hält",
+              "closed": "Geschlossen",
+              "offline": "Offline"
+            }
+          }
+        }
       }
     },
     "number": {

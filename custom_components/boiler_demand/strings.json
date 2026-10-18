@@ -121,6 +121,22 @@
       },
       "boiler_starts_today": {
         "name": "Boiler starts today"
+      },
+      "valve": {
+        "state_attributes": {
+          "source_entity": {
+            "name": "Source entity"
+          },
+          "role": {
+            "name": "Role",
+            "state": {
+              "demand": "Demand",
+              "holding": "Holding",
+              "closed": "Closed",
+              "offline": "Offline"
+            }
+          }
+        }
       }
     },
     "number": {

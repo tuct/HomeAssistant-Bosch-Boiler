@@ -25,6 +25,9 @@ from custom_components.boiler_demand.const import (
 
 BOILER = "input_boolean.therme"
 VALVES = ["sensor.heizung_kuche_valvetappet", "sensor.heizung_tobi_valvetappet"]
+# Per-valve sensors on the Boiler Demand device (named after the source).
+KUCHE_SENSOR = "sensor.heating_heizung_kuche_valvetappet"
+TOBI_SENSOR = "sensor.heating_heizung_tobi_valvetappet"
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +111,10 @@ async def test_controls_boiler(setup_hass: HomeAssistant) -> None:
     assert hass.states.get("binary_sensor.heating_heat_demand").state == "on"
     assert hass.states.get("sensor.heating_max_valve_opening").state == "25.0"
     assert hass.states.get("sensor.heating_boiler_starts_today").state == "1"
+    valve = hass.states.get(KUCHE_SENSOR)
+    assert valve.state == "25.0"
+    assert valve.attributes["role"] == "demand"
+    assert valve.attributes["source_entity"] == VALVES[0]
 
     # Inside the band it keeps heating.
     await _set_valves(hass, "15", "0")
@@ -118,6 +125,9 @@ async def test_controls_boiler(setup_hass: HomeAssistant) -> None:
     assert hass.states.get(BOILER).state == "off"
     attrs = hass.states.get("binary_sensor.heating_heat_demand").attributes
     assert attrs["offline_valves"] == [VALVES[0]]
+    assert hass.states.get(KUCHE_SENSOR).state == "unknown"
+    assert hass.states.get(KUCHE_SENSOR).attributes["role"] == "offline"
+    assert hass.states.get(TOBI_SENSOR).attributes["role"] == "closed"
 
     # Changing the on threshold from the dashboard applies without reload.
     await hass.services.async_call(
@@ -151,6 +161,31 @@ async def test_min_off_time_blocks(setup_hass: HomeAssistant) -> None:
     status = hass.states.get("sensor.heating_status")
     assert status.state == "waiting_min_off"
     assert 7 < status.attributes["remaining_minutes"] <= 8
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_valve_sensors_follow_options(setup_hass: HomeAssistant) -> None:
+    hass = setup_hass
+    entry = await _create_entry(hass)
+    registry = er.async_get(hass)
+    assert registry.async_get(KUCHE_SENSOR) is not None
+    assert registry.async_get(TOBI_SENSOR) is not None
+
+    # Deselect one valve in the options flow -> reload -> its sensor is removed.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "init"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {**DEFAULTS, CONF_SWITCH: BOILER, CONF_VALVES: [VALVES[1]]},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    assert registry.async_get(KUCHE_SENSOR) is None
+    assert registry.async_get(TOBI_SENSOR) is not None
+    assert entry.runtime_data.valves == [VALVES[1]]
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

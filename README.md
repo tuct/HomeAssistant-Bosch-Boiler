@@ -35,6 +35,7 @@ Everything can be changed later under *Configure*. Disable any old automations t
 | `sensor.<name>_status` | idle, heating, waiting for min on/off time, valves offline, failsafe, switch unavailable, disabled (+ remaining minutes) |
 | `sensor.<name>_max_valve_opening` | Highest valve opening in % |
 | `sensor.<name>_boiler_starts_today` | Burner starts since midnight – watch for short cycling |
+| `sensor.<name>_<valve>` | One per selected valve, named after its device: opening in % as used by the controller (unknown = offline/ignored). Attributes: `source_entity`, `role` (demand / holding / closed / offline) |
 | `switch.<name>_automatic_control` | Off = compute demand only, never touch the boiler switch |
 | `number.<name>_on_threshold` / `_off_threshold` | Hysteresis band in % |
 | `number.<name>_min_on_minutes` / `_min_off_minutes` | Anti short-cycling times |

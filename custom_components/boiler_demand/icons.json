@@ -17,6 +17,9 @@
       },
       "boiler_starts_today": {
         "default": "mdi:counter"
+      },
+      "valve": {
+        "default": "mdi:valve"
       }
     },
     "number": {
