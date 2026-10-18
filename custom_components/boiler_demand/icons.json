@@ -1,0 +1,50 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "heat_demand": {
+        "default": "mdi:fire",
+        "state": {
+          "off": "mdi:fire-off"
+        }
+      }
+    },
+    "sensor": {
+      "status": {
+        "default": "mdi:state-machine"
+      },
+      "max_valve_opening": {
+        "default": "mdi:valve"
+      },
+      "boiler_starts_today": {
+        "default": "mdi:counter"
+      }
+    },
+    "number": {
+      "on_threshold": {
+        "default": "mdi:valve-open"
+      },
+      "off_threshold": {
+        "default": "mdi:valve-closed"
+      },
+      "min_on_minutes": {
+        "default": "mdi:timer-play-outline"
+      },
+      "min_off_minutes": {
+        "default": "mdi:timer-pause-outline"
+      }
+    },
+    "switch": {
+      "automatic_control": {
+        "default": "mdi:robot",
+        "state": {
+          "off": "mdi:robot-off"
+        }
+      }
+    },
+    "select": {
+      "failsafe_mode": {
+        "default": "mdi:shield-alert-outline"
+      }
+    }
+  }
+}

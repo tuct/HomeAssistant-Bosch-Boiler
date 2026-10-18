@@ -1,0 +1,163 @@
+substitutions:
+  id_prefix: mista_heatcontrol
+  name: Mista Heatcontrol
+  node_name: mista-heatcontrol
+
+esphome:
+  name: ${node_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+packages:
+  watchdog: !include
+    file: boiler-watchdog.yaml
+    vars:
+      relay_id: ${id_prefix}_heater
+      failsafe_minutes: "10"
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+# 'password' was removed in ESPHome 2026.1 -> encryption key (HA asks for it once on reconnect).
+api:
+  encryption:
+    key: !secret heatcontrol_api_key
+
+ota:
+  - platform: esphome
+    password: !secret heatcontrol_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Mista-Heatcontrol"
+    password: !secret heatcontrol_ap_password
+
+captive_portal:
+
+time:
+  - platform: sntp
+    id: sntp_time
+sensor:
+  - platform: aht10
+    variant: AHT20
+    temperature:
+      name: "${name} - Temp AHT20 "
+      id: ${id_prefix}_aht20_temp
+    humidity:
+      name: "${name} - Humidity AHT20"
+      id: ${id_prefix}_aht20_hum
+    update_interval: 10s
+  - platform: bmp280_i2c
+    temperature:
+      name: "${name} - Temp BMP280"
+      id: ${id_prefix}_bmp280_temp
+      oversampling: 16x
+    pressure:
+      name: "${name} - Pressure BMP280"
+      id: ${id_prefix}_bmp280_pressure
+    address: 0x77
+    update_interval: 10s
+  - platform: template
+    name: "${name} - Temp Avg"
+    id: ${id_prefix}_temp_avg
+    lambda: |-
+      if (id(${id_prefix}_bmp280_temp).state && id(${id_prefix}_aht20_temp).state) {
+        return (id(${id_prefix}_bmp280_temp).state + id(${id_prefix}_aht20_temp).state ) /2;
+      } else {
+        return 0.0;
+      }
+    update_interval: 10s
+    filters:
+      - offset: -2.0
+  - platform: rotary_encoder
+    name: "Rotary Encoder"
+    pin_a: 18
+    pin_b: 14
+    internal: true
+    on_clockwise:
+      - logger.log: "Turned Anticlockwise"
+
+    on_anticlockwise:
+      - logger.log: "Turned Anticlockwise"
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: 13
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    id: rotary_button
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+
+
+switch:
+  - platform: gpio
+    pin:
+      number: 16
+      mode:
+        output: true
+    inverted: false
+    id: ${id_prefix}_heater
+    name: "${name} - Heater"
+    # Boiler must not stay off after a reboot/power cut; HA turns it off again if not needed.
+    restore_mode: RESTORE_DEFAULT_ON
+font:
+  # gfonts://family[@weight]
+  - file: "gfonts://Zen+Dots"
+    id: roboto
+    size: 12
+  - file: "gfonts://Zen+Dots"
+    id: roboto_small
+    size: 10
+  - file: "gfonts://Zen+Dots"
+    id: roboto_big
+    size: 28
+
+
+i2c:
+  sda: 21
+  scl: 22
+  frequency: 300kHz
+display:
+  - platform: ssd1306_i2c
+    model: "SH1106 128x64"
+    address: 0x3C
+    id: my_lcd
+    update_interval: 0.5s
+    flip_x: false
+    flip_y: false
+    lambda: |-
+
+      //hum
+      if (id(${id_prefix}_aht20_hum).has_state()) {
+        it.printf(0, 14, id(roboto_small), TextAlign::BASELINE_LEFT , "%.1f%%", id(${id_prefix}_aht20_hum).state);
+      }
+      if(id(${id_prefix}_bmp280_pressure).state){
+        it.printf(126, 14, id(roboto_small), TextAlign::BASELINE_RIGHT , "%.1fhPa", id(${id_prefix}_bmp280_pressure).state);
+      }
+      //temp
+      if (id(${id_prefix}_temp_avg).has_state()) {
+        it.print(126, 43, id(roboto_small), TextAlign::BASELINE_RIGHT , "°C");
+        it.printf(112, 43, id(roboto_big), TextAlign::BASELINE_RIGHT , "%.1f", id(${id_prefix}_temp_avg).state);
+      }
+      if (id(boiler_watchdog_minutes_without_ha) >= 10) {
+        it.printf(0, 58, id(roboto), TextAlign::BASELINE_LEFT , "%s", "FAILSAFE");
+      } else if(id(${id_prefix}_heater).state){
+        it.printf(0, 58, id(roboto), TextAlign::BASELINE_LEFT , "%s", "HEATING");
+      }else{
+        it.printf(0, 58, id(roboto), TextAlign::BASELINE_LEFT , "%s", "IDLE");
+      }
+      //time
+      it.strftime(126, 58, id(roboto_small), TextAlign::BASELINE_RIGHT, "%H:%M", id(sntp_time).now());

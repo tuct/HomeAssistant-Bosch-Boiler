@@ -1,0 +1,45 @@
+# Boiler relay watchdog.
+# If Home Assistant has not been connected for ${failsafe_minutes} minutes, turn the boiler relay ON.
+# The Bosch TRVs keep regulating locally, so this falls back to "boiler on, valves decide".
+#
+# Include with:
+#   packages:
+#     watchdog: !include
+#       file: boiler-watchdog.yaml
+#       vars:
+#         relay_id: my_relay
+#         failsafe_minutes: "10"
+
+globals:
+  - id: boiler_watchdog_minutes_without_ha
+    type: int
+    restore_value: false
+    initial_value: "0"
+
+api:
+  # Never reboot on lost connection; the watchdog below handles it.
+  reboot_timeout: 0s
+
+interval:
+  - interval: 1min
+    then:
+      - if:
+          condition:
+            # Only Home Assistant subscribes to states; log viewers do not count.
+            api.connected:
+              state_subscription_only: true
+          then:
+            - lambda: id(boiler_watchdog_minutes_without_ha) = 0;
+          else:
+            - lambda: id(boiler_watchdog_minutes_without_ha) += 1;
+            - if:
+                condition:
+                  and:
+                    - lambda: return id(boiler_watchdog_minutes_without_ha) >= ${failsafe_minutes};
+                    - switch.is_off: ${relay_id}
+                then:
+                  - logger.log:
+                      level: WARN
+                      format: "No Home Assistant for %d min - failsafe: boiler ON"
+                      args: [id(boiler_watchdog_minutes_without_ha)]
+                  - switch.turn_on: ${relay_id}

@@ -1,0 +1,161 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Boiler Demand",
+        "description": "Schaltet die Therme abhängig davon, wie weit die Heizkörperventile geöffnet sind.",
+        "data": {
+          "name": "Name",
+          "switch_entity": "Thermenschalter"
+        },
+        "data_description": {
+          "switch_entity": "Relais am Raumthermostat-Kontakt der Therme (switch oder input_boolean)."
+        }
+      },
+      "valves": {
+        "title": "Heizkörperventile",
+        "description": "{count} Ventilsensoren wurden gefunden und vorausgewählt. Sensoren mit Ventilöffnung in % hinzufügen oder entfernen.",
+        "data": {
+          "valves": "Ventilsensoren"
+        },
+        "data_description": {
+          "valves": "Sensoren, die die Ventilöffnung in % melden. Nicht verfügbare oder negative Werte werden ignoriert."
+        }
+      },
+      "settings": {
+        "title": "Regelung",
+        "data": {
+          "on_threshold": "Einschaltschwelle",
+          "off_threshold": "Ausschaltschwelle",
+          "min_on_minutes": "Mindestlaufzeit",
+          "min_off_minutes": "Mindestpause",
+          "failsafe_after_minutes": "Notbetrieb nach",
+          "failsafe_mode": "Notbetrieb-Aktion"
+        },
+        "data_description": {
+          "on_threshold": "Die Therme schaltet ein, sobald ein Ventil mindestens so weit geöffnet ist.",
+          "off_threshold": "Die Therme schaltet aus, sobald alle Ventile höchstens so weit geöffnet sind. Muss kleiner als die Einschaltschwelle sein.",
+          "min_on_minutes": "So lange bleibt die Therme mindestens an, bevor sie ausschalten darf.",
+          "min_off_minutes": "So lange bleibt die Therme mindestens aus, bevor sie wieder einschalten darf.",
+          "failsafe_after_minutes": "So lange müssen alle Ventile offline sein, bevor der Notbetrieb greift.",
+          "failsafe_mode": "Was mit der Therme passiert, wenn kein Ventil Daten liefert."
+        }
+      }
+    },
+    "error": {
+      "no_valves": "Mindestens einen Ventilsensor auswählen.",
+      "off_above_on": "Die Ausschaltschwelle muss kleiner als die Einschaltschwelle sein."
+    },
+    "abort": {
+      "already_configured": "Dieser Thermenschalter wird bereits von Boiler Demand gesteuert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Boiler Demand Optionen",
+        "description": "Gefundene Ventilsensoren: {detected}",
+        "data": {
+          "switch_entity": "Thermenschalter",
+          "valves": "Ventilsensoren",
+          "on_threshold": "Einschaltschwelle",
+          "off_threshold": "Ausschaltschwelle",
+          "min_on_minutes": "Mindestlaufzeit",
+          "min_off_minutes": "Mindestpause",
+          "failsafe_after_minutes": "Notbetrieb nach",
+          "failsafe_mode": "Notbetrieb-Aktion"
+        },
+        "data_description": {
+          "switch_entity": "Relais am Raumthermostat-Kontakt der Therme (switch oder input_boolean).",
+          "valves": "Sensoren, die die Ventilöffnung in % melden. Nicht verfügbare oder negative Werte werden ignoriert.",
+          "on_threshold": "Die Therme schaltet ein, sobald ein Ventil mindestens so weit geöffnet ist.",
+          "off_threshold": "Die Therme schaltet aus, sobald alle Ventile höchstens so weit geöffnet sind. Muss kleiner als die Einschaltschwelle sein.",
+          "min_on_minutes": "So lange bleibt die Therme mindestens an, bevor sie ausschalten darf.",
+          "min_off_minutes": "So lange bleibt die Therme mindestens aus, bevor sie wieder einschalten darf.",
+          "failsafe_after_minutes": "So lange müssen alle Ventile offline sein, bevor der Notbetrieb greift.",
+          "failsafe_mode": "Was mit der Therme passiert, wenn kein Ventil Daten liefert."
+        }
+      }
+    },
+    "error": {
+      "no_valves": "Mindestens einen Ventilsensor auswählen.",
+      "off_above_on": "Die Ausschaltschwelle muss kleiner als die Einschaltschwelle sein."
+    }
+  },
+  "selector": {
+    "failsafe_mode": {
+      "options": {
+        "on": "Therme an",
+        "off": "Therme aus",
+        "hold": "Zustand halten"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "heat_demand": {
+        "name": "Wärmeanforderung"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Bereit",
+          "heating": "Heizt",
+          "waiting_min_on": "Wartet auf Mindestlaufzeit",
+          "waiting_min_off": "Wartet auf Mindestpause",
+          "valves_offline": "Ventile offline",
+          "failsafe": "Notbetrieb aktiv",
+          "switch_unavailable": "Thermenschalter nicht verfügbar",
+          "disabled": "Automatik aus"
+        },
+        "state_attributes": {
+          "remaining_minutes": {
+            "name": "Restminuten"
+          }
+        }
+      },
+      "max_valve_opening": {
+        "name": "Max. Ventilöffnung"
+      },
+      "boiler_starts_today": {
+        "name": "Brennerstarts heute"
+      }
+    },
+    "number": {
+      "on_threshold": {
+        "name": "Einschaltschwelle"
+      },
+      "off_threshold": {
+        "name": "Ausschaltschwelle"
+      },
+      "min_on_minutes": {
+        "name": "Mindestlaufzeit"
+      },
+      "min_off_minutes": {
+        "name": "Mindestpause"
+      }
+    },
+    "switch": {
+      "automatic_control": {
+        "name": "Automatik"
+      }
+    },
+    "select": {
+      "failsafe_mode": {
+        "name": "Notbetrieb-Aktion",
+        "state": {
+          "on": "Therme an",
+          "off": "Therme aus",
+          "hold": "Zustand halten"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "off_above_on": {
+      "message": "Die Ausschaltschwelle ({off} %) muss kleiner als die Einschaltschwelle ({on} %) sein."
+    }
+  }
+}

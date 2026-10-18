@@ -1,0 +1,161 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Boiler Demand",
+        "description": "Switch the boiler on and off from how far your radiator valves are open.",
+        "data": {
+          "name": "Name",
+          "switch_entity": "Boiler switch"
+        },
+        "data_description": {
+          "switch_entity": "Relay on the boiler's room-thermostat contact (switch or input_boolean)."
+        }
+      },
+      "valves": {
+        "title": "Radiator valves",
+        "description": "{count} valve sensors were found and pre-selected. Add or remove sensors that report valve opening in %.",
+        "data": {
+          "valves": "Valve sensors"
+        },
+        "data_description": {
+          "valves": "Sensors reporting valve opening in %. Unavailable or negative values are ignored."
+        }
+      },
+      "settings": {
+        "title": "Control settings",
+        "data": {
+          "on_threshold": "On threshold",
+          "off_threshold": "Off threshold",
+          "min_on_minutes": "Minimum on time",
+          "min_off_minutes": "Minimum off time",
+          "failsafe_after_minutes": "Failsafe after",
+          "failsafe_mode": "Failsafe action"
+        },
+        "data_description": {
+          "on_threshold": "Boiler turns on as soon as any valve is at least this far open.",
+          "off_threshold": "Boiler turns off once all valves are at or below this. Must be lower than the on threshold.",
+          "min_on_minutes": "Boiler stays on at least this long before it may turn off.",
+          "min_off_minutes": "Boiler stays off at least this long before it may turn on again.",
+          "failsafe_after_minutes": "How long all valves must be offline before the failsafe acts.",
+          "failsafe_mode": "What to do with the boiler when no valve reports data."
+        }
+      }
+    },
+    "error": {
+      "no_valves": "Select at least one valve sensor.",
+      "off_above_on": "The off threshold must be lower than the on threshold."
+    },
+    "abort": {
+      "already_configured": "This boiler switch is already controlled by Boiler Demand."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Boiler Demand options",
+        "description": "Detected valve sensors: {detected}",
+        "data": {
+          "switch_entity": "Boiler switch",
+          "valves": "Valve sensors",
+          "on_threshold": "On threshold",
+          "off_threshold": "Off threshold",
+          "min_on_minutes": "Minimum on time",
+          "min_off_minutes": "Minimum off time",
+          "failsafe_after_minutes": "Failsafe after",
+          "failsafe_mode": "Failsafe action"
+        },
+        "data_description": {
+          "switch_entity": "Relay on the boiler's room-thermostat contact (switch or input_boolean).",
+          "valves": "Sensors reporting valve opening in %. Unavailable or negative values are ignored.",
+          "on_threshold": "Boiler turns on as soon as any valve is at least this far open.",
+          "off_threshold": "Boiler turns off once all valves are at or below this. Must be lower than the on threshold.",
+          "min_on_minutes": "Boiler stays on at least this long before it may turn off.",
+          "min_off_minutes": "Boiler stays off at least this long before it may turn on again.",
+          "failsafe_after_minutes": "How long all valves must be offline before the failsafe acts.",
+          "failsafe_mode": "What to do with the boiler when no valve reports data."
+        }
+      }
+    },
+    "error": {
+      "no_valves": "Select at least one valve sensor.",
+      "off_above_on": "The off threshold must be lower than the on threshold."
+    }
+  },
+  "selector": {
+    "failsafe_mode": {
+      "options": {
+        "on": "Boiler on",
+        "off": "Boiler off",
+        "hold": "Keep current state"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "heat_demand": {
+        "name": "Heat demand"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Idle",
+          "heating": "Heating",
+          "waiting_min_on": "Waiting for minimum on time",
+          "waiting_min_off": "Waiting for minimum off time",
+          "valves_offline": "Valves offline",
+          "failsafe": "Failsafe active",
+          "switch_unavailable": "Boiler switch unavailable",
+          "disabled": "Automatic control off"
+        },
+        "state_attributes": {
+          "remaining_minutes": {
+            "name": "Remaining minutes"
+          }
+        }
+      },
+      "max_valve_opening": {
+        "name": "Max valve opening"
+      },
+      "boiler_starts_today": {
+        "name": "Boiler starts today"
+      }
+    },
+    "number": {
+      "on_threshold": {
+        "name": "On threshold"
+      },
+      "off_threshold": {
+        "name": "Off threshold"
+      },
+      "min_on_minutes": {
+        "name": "Minimum on time"
+      },
+      "min_off_minutes": {
+        "name": "Minimum off time"
+      }
+    },
+    "switch": {
+      "automatic_control": {
+        "name": "Automatic control"
+      }
+    },
+    "select": {
+      "failsafe_mode": {
+        "name": "Failsafe action",
+        "state": {
+          "on": "Boiler on",
+          "off": "Boiler off",
+          "hold": "Keep current state"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "off_above_on": {
+      "message": "Off threshold ({off} %) must be lower than on threshold ({on} %)."
+    }
+  }
+}
