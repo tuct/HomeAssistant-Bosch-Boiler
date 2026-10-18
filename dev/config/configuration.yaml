@@ -1,0 +1,85 @@
+# Dev instance with simulated rooms for Boiler Demand.
+# Move the sliders (valve %, temperature) on the Overview dashboard and watch the boiler switch.
+default_config:
+
+logger:
+  default: warning
+  logs:
+    custom_components.boiler_demand: debug
+
+# The "boiler relay"
+input_boolean:
+  therme:
+    name: Therme (simulated relay)
+    icon: mdi:water-boiler
+
+# Sliders driving the simulated TRVs
+input_number:
+  tobi_valve:
+    name: Tobi valve
+    min: -1
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+  timon_valve:
+    name: Timon valve
+    min: -1
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+  kuche_valve:
+    name: Küche valve
+    min: -1
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+  tobi_temp:
+    name: Tobi temperature
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+  timon_temp:
+    name: Timon temperature
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+  kuche_temp:
+    name: Küche temperature
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+
+# Simulated TRV sensors. "valve_position" + unit % is auto-detected as a valve.
+# -1 on a slider simulates a Bosch valve that is not ready (ignored by the controller).
+template:
+  - sensor:
+      - name: Heizung Tobi valve position
+        unique_id: sim_tobi_valve_position
+        unit_of_measurement: "%"
+        state: "{{ states('input_number.tobi_valve') | int }}"
+      - name: Heizung Timon valve position
+        unique_id: sim_timon_valve_position
+        unit_of_measurement: "%"
+        state: "{{ states('input_number.timon_valve') | int }}"
+      - name: Heizung Küche valve position
+        unique_id: sim_kuche_valve_position
+        unit_of_measurement: "%"
+        state: "{{ states('input_number.kuche_valve') | int }}"
+      - name: Heizung Tobi temperature
+        unique_id: sim_tobi_temperature
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state: "{{ states('input_number.tobi_temp') }}"
+      - name: Heizung Timon temperature
+        unique_id: sim_timon_temperature
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state: "{{ states('input_number.timon_temp') }}"
+      - name: Heizung Küche temperature
+        unique_id: sim_kuche_temperature
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state: "{{ states('input_number.kuche_temp') }}"

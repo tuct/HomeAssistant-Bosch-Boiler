@@ -22,6 +22,10 @@
           "valves": "Sensoren, die die Ventilöffnung in % melden. Nicht verfügbare oder negative Werte werden ignoriert."
         }
       },
+      "rooms": {
+        "title": "Räume",
+        "description": "Optionaler Temperatursensor pro Raum. {count} wurden an den Ventilgeräten gefunden und vorausgefüllt. Jeder Raum erscheint als eigenes Gerät mit Ventilöffnung und Temperatur."
+      },
       "settings": {
         "title": "Regelung",
         "data": {
@@ -75,6 +79,10 @@
           "failsafe_after_minutes": "So lange müssen alle Ventile offline sein, bevor der Notbetrieb greift.",
           "failsafe_mode": "Was mit der Therme passiert, wenn kein Ventil Daten liefert."
         }
+      },
+      "rooms": {
+        "title": "Räume",
+        "description": "Optionaler Temperatursensor pro Raum. {count} wurden an den Ventilgeräten gefunden und vorausgefüllt. Jeder Raum erscheint als eigenes Gerät mit Ventilöffnung und Temperatur."
       }
     },
     "error": {
@@ -122,7 +130,16 @@
       "boiler_starts_today": {
         "name": "Brennerstarts heute"
       },
-      "valve": {
+      "room_temperature": {
+        "name": "Raumtemperatur",
+        "state_attributes": {
+          "source_entity": {
+            "name": "Quell-Entität"
+          }
+        }
+      },
+      "valve_opening": {
+        "name": "Ventilöffnung",
         "state_attributes": {
           "source_entity": {
             "name": "Quell-Entität"

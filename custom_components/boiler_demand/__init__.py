@@ -5,8 +5,10 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from .controller import BoilerDemandController
+from .entity import main_device_info
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -23,6 +25,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: BoilerDemandConfigEntry)
     """Set up Boiler Demand from a config entry."""
     controller = BoilerDemandController(hass, entry)
     entry.runtime_data = controller
+    # Register the main device first so room devices can link to it.
+    controller.device_id = (
+        dr.async_get(hass)
+        .async_get_or_create(config_entry_id=entry.entry_id, **main_device_info(entry))
+        .id
+    )
 
     # Entities restore state (automatic control, starts today) before the controller runs.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

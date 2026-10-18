@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+# Local dev Home Assistant: keep only the config file
+dev/config/*
+!dev/config/configuration.yaml

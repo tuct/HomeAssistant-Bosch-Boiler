@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -9,6 +10,17 @@ from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN
 from .controller import BoilerDemandController
+
+
+def main_device_info(entry: ConfigEntry) -> DeviceInfo:
+    """The Boiler Demand device of one config entry."""
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer="Boiler Demand",
+        model="Valve-based boiler control",
+        entry_type=DeviceEntryType.SERVICE,
+    )
 
 
 class BoilerDemandEntity(Entity):
@@ -22,13 +34,7 @@ class BoilerDemandEntity(Entity):
         entry = controller.entry
         self._attr_translation_key = key
         self._attr_unique_id = f"{entry.entry_id}_{key}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name=entry.title,
-            manufacturer="Boiler Demand",
-            model="Valve-based boiler control",
-            entry_type=DeviceEntryType.SERVICE,
-        )
+        self._attr_device_info = main_device_info(entry)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

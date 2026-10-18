@@ -10,6 +10,8 @@ sensor that reports valve opening in % (ZHA, Zigbee2MQTT, ...).
 - **Minimum on / off times** – prevents short cycling.
 - **Offline-safe** – unavailable, unknown and negative (`-1`) values are ignored; if *all* valves are
   offline for a while, a failsafe turns the boiler on (or off / holds, configurable).
+- **Rooms** – each valve becomes a room device with its valve opening and (optional) room temperature;
+  the temperature sensor on the same TRV device (or the only one in its area) is found automatically.
 - **Dashboard controls** – thresholds, times, failsafe and an automatic-control switch are entities.
 
 ## Install
@@ -23,7 +25,8 @@ Then: Settings → Devices & services → Add integration → *Boiler Demand*.
 
 1. Name and boiler switch.
 2. Valve sensors (detected ones are pre-selected).
-3. Thresholds, minimum times and failsafe.
+3. Rooms: a temperature sensor per valve (optional, detected ones are pre-filled).
+4. Thresholds, minimum times and failsafe.
 
 Everything can be changed later under *Configure*. Disable any old automations that switch the boiler.
 
@@ -35,11 +38,22 @@ Everything can be changed later under *Configure*. Disable any old automations t
 | `sensor.<name>_status` | idle, heating, waiting for min on/off time, valves offline, failsafe, switch unavailable, disabled (+ remaining minutes) |
 | `sensor.<name>_max_valve_opening` | Highest valve opening in % |
 | `sensor.<name>_boiler_starts_today` | Burner starts since midnight – watch for short cycling |
-| `sensor.<name>_<valve>` | One per selected valve, named after its device: opening in % as used by the controller (unknown = offline/ignored). Attributes: `source_entity`, `role` (demand / holding / closed / offline) |
 | `switch.<name>_automatic_control` | Off = compute demand only, never touch the boiler switch |
 | `number.<name>_on_threshold` / `_off_threshold` | Hysteresis band in % |
-| `number.<name>_min_on_minutes` / `_min_off_minutes` | Anti short-cycling times |
-| `select.<name>_failsafe_mode` | What to do when all valves are offline |
+| `number.<name>_minimum_on_time` / `_minimum_off_time` | Anti short-cycling times |
+| `select.<name>_failsafe_action` | What to do when all valves are offline |
+
+### Rooms
+
+Every selected valve gets its own **room device** (named after the TRV, e.g. *Heizung Tobi*), linked
+under the Boiler Demand device and placed in the valve's area:
+
+| Entity | Purpose |
+| --- | --- |
+| `sensor.<room>_valve_opening` | Opening in % as used by the controller (unknown = offline/ignored). Attributes: `source_entity`, `role` (demand / holding / closed / offline) |
+| `sensor.<room>_room_temperature` | Room temperature from the assigned sensor (only if one is set) |
+
+Home Assistant may put the area in front of these entity ids (e.g. `sensor.kuche_heizung_kuche_valve_opening`).
 
 ## Dashboard card
 
@@ -55,9 +69,30 @@ entities:
   - type: section
   - entity: number.heating_on_threshold
   - entity: number.heating_off_threshold
-  - entity: number.heating_min_on_minutes
-  - entity: number.heating_min_off_minutes
-  - entity: select.heating_failsafe_mode
+  - entity: number.heating_minimum_on_time
+  - entity: number.heating_minimum_off_time
+  - entity: select.heating_failsafe_action
+```
+
+One tile row per room (valve + temperature together):
+
+```yaml
+type: grid
+columns: 2
+square: false
+cards:
+  - type: tile
+    entity: sensor.heizung_tobi_room_temperature
+    name: Tobi
+  - type: tile
+    entity: sensor.heizung_tobi_valve_opening
+    name: Ventil
+  - type: tile
+    entity: sensor.heizung_timon_room_temperature
+    name: Timon
+  - type: tile
+    entity: sensor.heizung_timon_valve_opening
+    name: Ventil
 ```
 
 ## Tuning
@@ -85,8 +120,12 @@ the ESPHome switch still reads naturally (ON = boiler on = coil off). The coil d
 the boiler is off. Verify with a multimeter on COM/NC: switch ON must read closed; if not, the module
 is low-level triggered (H/L jumper) → use `inverted: false`.
 
-Optional: OLED screen (SH1106 / SSD1306), rotary encoder with button, or a touch screen for local
-status and manual override (see `esphome/mista-heatcontrol.yaml`).
+Optional:
+
+| Part | Notes |
+| --- | --- |
+| 1.8" TFT, ST7735, 128×160, SPI | Boiler state, Boiler Demand status, max valve opening, HA connection / FAILSAFE, time. Package `esphome/boiler-tft-st7735.yaml`, complete node `esphome/boiler-relay-c3-tft.yaml` (wiring in the file) |
+| OLED (SH1106 / SSD1306), rotary encoder with button, touch screen | Local status and manual override, see `esphome/mista-heatcontrol.yaml` |
 
 Safety: check the boiler manual for the voltage on the thermostat terminals (24 V or 230 V). For 230 V,
 use a relay module rated for mains with proper isolation and an enclosure; never put mains on the ESP
@@ -100,6 +139,22 @@ locally, so the flat stays warm while HA is down. Pair it with `restore_mode: RE
 the relay. See `esphome/mista-heatcontrol.yaml` for a complete node.
 
 ## Development
+
+### Try the UI locally
+
+`dev/` runs a throw-away Home Assistant in Docker with this integration mounted and simulated rooms
+(valve and temperature sliders, a fake boiler switch):
+
+```
+docker compose -f dev/docker-compose.yml up -d
+```
+
+Open http://localhost:8123, create a user, then add *Boiler Demand* (boiler: *Therme (simulated relay)*).
+Move the sliders on the Overview dashboard; `-1` simulates a valve that is not ready. After changing
+the code: `docker compose -f dev/docker-compose.yml restart`. The simulated sensors have no device, so
+assign them to areas (or pick temperatures by hand in the Rooms step) to try temperature detection.
+
+### Tests
 
 ```
 pip install pytest pytest-homeassistant-custom-component

@@ -1,0 +1,126 @@
+# Optional 1.8" TFT (ST7735, 128x160, SPI) for the boiler relay node.
+# Shows boiler state, the Boiler Demand status from Home Assistant, max valve opening,
+# Home Assistant connection / FAILSAFE and the time.
+#
+# Include with (pins below are for the Seeed XIAO ESP32-C3):
+#   packages:
+#     tft: !include
+#       file: boiler-tft-st7735.yaml
+#       vars:
+#         relay_id: boiler_relay
+#         status_entity: sensor.heating_status
+#         max_valve_entity: sensor.heating_max_valve_opening
+#
+# Wiring (XIAO ESP32-C3 -> TFT):
+#   D8 (GPIO8)  -> SCK / SCL     D10 (GPIO10) -> SDA / MOSI
+#   D1 (GPIO3)  -> CS            D3 (GPIO5)   -> DC / A0
+#   D6 (GPIO21) -> RES / RST     D7 (GPIO20)  -> BL / LED (or tie BL to 3V3)
+#   VCC -> 3V3, GND -> GND
+# Panel variants differ: if the picture is shifted by a few pixels, add
+#   dimensions: {width: 128, height: 160, offset_width: 2, offset_height: 1}
+# if red/blue are swapped use `color_order: rgb`, if colours are negative `invert_colors: true`.
+
+defaults:
+  tft_sck_pin: GPIO8
+  tft_mosi_pin: GPIO10
+  tft_cs_pin: GPIO3
+  tft_dc_pin: GPIO5
+  tft_reset_pin: GPIO21
+  tft_backlight_pin: GPIO20
+  status_entity: sensor.heating_status
+  max_valve_entity: sensor.heating_max_valve_opening
+  failsafe_minutes: "10"
+
+spi:
+  clk_pin: ${tft_sck_pin}
+  mosi_pin: ${tft_mosi_pin}
+
+output:
+  - platform: ledc
+    pin: ${tft_backlight_pin}
+    id: tft_backlight_pwm
+
+light:
+  - platform: monochromatic
+    output: tft_backlight_pwm
+    name: "Display Backlight"
+    id: tft_backlight
+    restore_mode: ALWAYS_ON
+
+time:
+  - platform: homeassistant
+    id: tft_time
+
+text_sensor:
+  - platform: homeassistant
+    id: tft_ha_status
+    entity_id: ${status_entity}
+    internal: true
+
+sensor:
+  - platform: homeassistant
+    id: tft_ha_max_valve
+    entity_id: ${max_valve_entity}
+    internal: true
+
+font:
+  - file: "gfonts://Roboto@700"
+    id: tft_font_big
+    size: 30
+  - file: "gfonts://Roboto"
+    id: tft_font
+    size: 14
+  - file: "gfonts://Roboto"
+    id: tft_font_small
+    size: 11
+
+color:
+  - id: tft_red
+    hex: "E5484D"
+  - id: tft_green
+    hex: "30A46C"
+  - id: tft_amber
+    hex: "F5A623"
+  - id: tft_grey
+    hex: "8B8D98"
+
+display:
+  - platform: mipi_spi
+    model: ST7735
+    id: tft
+    cs_pin: ${tft_cs_pin}
+    dc_pin: ${tft_dc_pin}
+    reset_pin: ${tft_reset_pin}
+    rotation: 90  # landscape 160x128
+    update_interval: 1s
+    lambda: |-
+      const bool failsafe = id(boiler_watchdog_minutes_without_ha) >= ${failsafe_minutes};
+      const bool on = id(${relay_id}).state;
+      it.fill(Color::BLACK);
+
+      // Header: title + time
+      it.print(4, 4, id(tft_font), Color::WHITE, "Heizung");
+      if (id(tft_time).now().is_valid())
+        it.strftime(156, 4, id(tft_font), Color::WHITE, TextAlign::TOP_RIGHT, "%H:%M", id(tft_time).now());
+
+      // Boiler state
+      it.print(80, 30, id(tft_font_big), on ? id(tft_red) : id(tft_grey), TextAlign::TOP_CENTER,
+               on ? "HEIZT" : "AUS");
+
+      // Integration status + max valve opening
+      std::string status = id(tft_ha_status).has_state() ? id(tft_ha_status).state : "-";
+      std::replace(status.begin(), status.end(), '_', ' ');
+      it.print(80, 72, id(tft_font), Color::WHITE, TextAlign::TOP_CENTER, status.c_str());
+      if (id(tft_ha_max_valve).has_state() && !std::isnan(id(tft_ha_max_valve).state))
+        it.printf(80, 90, id(tft_font_small), id(tft_grey), TextAlign::TOP_CENTER,
+                  "max. Ventil %.0f %%", id(tft_ha_max_valve).state);
+
+      // Footer: connection
+      if (failsafe) {
+        it.filled_rectangle(0, 108, 160, 20, id(tft_amber));
+        it.print(80, 110, id(tft_font), Color::BLACK, TextAlign::TOP_CENTER, "FAILSAFE - kein HA");
+      } else if (id(boiler_watchdog_minutes_without_ha) > 0) {
+        it.print(80, 112, id(tft_font_small), id(tft_amber), TextAlign::TOP_CENTER, "HA getrennt");
+      } else {
+        it.print(80, 112, id(tft_font_small), id(tft_green), TextAlign::TOP_CENTER, "HA verbunden");
+      }

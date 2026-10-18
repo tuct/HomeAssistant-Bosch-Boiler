@@ -14,7 +14,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.const import CONF_NAME
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
@@ -35,15 +35,19 @@ from .const import (
     CONF_OFF_THRESHOLD,
     CONF_ON_THRESHOLD,
     CONF_SWITCH,
+    CONF_TEMPERATURES,
     CONF_VALVES,
     DEFAULTS,
     DOMAIN,
     FAILSAFE_MODES,
 )
-from .discovery import find_valve_candidates
+from .discovery import find_room_temperature, find_valve_candidates, valve_labels
 
 SWITCH_SELECTOR = EntitySelector(EntitySelectorConfig(domain=["switch", "input_boolean"]))
 VALVES_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor", multiple=True))
+TEMPERATURE_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="sensor", device_class="temperature")
+)
 
 
 def _percent(minimum: int, maximum: int) -> NumberSelector:
@@ -88,6 +92,32 @@ def _settings_schema(values: Mapping[str, Any]) -> dict[vol.Marker, Any]:
     }
 
 
+def _rooms_form(
+    hass: HomeAssistant, valves: list[str], current: Mapping[str, str | None]
+) -> tuple[vol.Schema, dict[str, str], int]:
+    """One optional temperature field per valve, labelled with the room name.
+
+    Pre-filled with the current choice, else the auto-detected sensor. A valve the
+    user cleared before stays cleared (stored as None).
+    """
+    labels = valve_labels(hass, valves)
+    fields: dict[vol.Marker, Any] = {}
+    detected = 0
+    for label, valve in labels.items():
+        if valve in current:
+            suggested = current[valve]
+        else:
+            suggested = find_room_temperature(hass, valve)
+            detected += suggested is not None
+        description = {"suggested_value": suggested} if suggested else None
+        fields[vol.Optional(label, description=description)] = TEMPERATURE_SELECTOR
+    return vol.Schema(fields), labels, detected
+
+
+def _rooms_option(labels: Mapping[str, str], user_input: Mapping[str, Any]) -> dict[str, str | None]:
+    return {valve: user_input.get(label) or None for label, valve in labels.items()}
+
+
 def _validate(user_input: Mapping[str, Any]) -> dict[str, str]:
     errors: dict[str, str] = {}
     if CONF_VALVES in user_input and not user_input[CONF_VALVES]:
@@ -98,7 +128,7 @@ def _validate(user_input: Mapping[str, Any]) -> dict[str, str]:
 
 
 class BoilerDemandConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Set up Boiler Demand: switch -> valves -> settings."""
+    """Set up Boiler Demand: switch -> valves -> rooms -> settings."""
 
     VERSION = 1
 
@@ -131,7 +161,7 @@ class BoilerDemandConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             if user_input.get(CONF_VALVES):
                 self._data.update(user_input)
-                return await self.async_step_settings()
+                return await self.async_step_rooms()
             errors[CONF_VALVES] = "no_valves"
 
         detected = find_valve_candidates(self.hass)
@@ -144,6 +174,20 @@ class BoilerDemandConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"count": str(len(detected))},
         )
 
+    async def async_step_rooms(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        schema, labels, detected = _rooms_form(self.hass, self._data[CONF_VALVES], {})
+        if user_input is not None:
+            self._data[CONF_TEMPERATURES] = _rooms_option(labels, user_input)
+            return await self.async_step_settings()
+
+        return self.async_show_form(
+            step_id="rooms",
+            data_schema=schema,
+            description_placeholders={"count": str(detected)},
+        )
+
     async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -154,6 +198,7 @@ class BoilerDemandConfigFlow(ConfigFlow, domain=DOMAIN):
                 options = {
                     CONF_SWITCH: self._data[CONF_SWITCH],
                     CONF_VALVES: self._data[CONF_VALVES],
+                    CONF_TEMPERATURES: self._data[CONF_TEMPERATURES],
                     **user_input,
                 }
                 return self.async_create_entry(
@@ -173,7 +218,10 @@ class BoilerDemandConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class BoilerDemandOptionsFlow(OptionsFlow):
-    """Change switch, valves and settings."""
+    """Change switch, valves and settings, then room temperatures."""
+
+    def __init__(self) -> None:
+        self._options: dict[str, Any] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -187,7 +235,8 @@ class BoilerDemandOptionsFlow(OptionsFlow):
                     self.hass.config_entries.async_update_entry(
                         self.config_entry, unique_id=new_switch
                     )
-                return self.async_create_entry(data=user_input)
+                self._options = user_input
+                return await self.async_step_rooms()
 
         values = {**DEFAULTS, **self.config_entry.options, **(user_input or {})}
         detected = find_valve_candidates(self.hass)
@@ -203,4 +252,22 @@ class BoilerDemandOptionsFlow(OptionsFlow):
             description_placeholders={
                 "detected": ", ".join(detected) if detected else "-",
             },
+        )
+
+    async def async_step_rooms(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        current = self.config_entry.options.get(CONF_TEMPERATURES) or {}
+        schema, labels, detected = _rooms_form(
+            self.hass, self._options[CONF_VALVES], current
+        )
+        if user_input is not None:
+            return self.async_create_entry(
+                data={**self._options, CONF_TEMPERATURES: _rooms_option(labels, user_input)}
+            )
+
+        return self.async_show_form(
+            step_id="rooms",
+            data_schema=schema,
+            description_placeholders={"count": str(detected)},
         )

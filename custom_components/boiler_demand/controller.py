@@ -29,6 +29,7 @@ from .const import (
     CONF_OFF_THRESHOLD,
     CONF_ON_THRESHOLD,
     CONF_SWITCH,
+    CONF_TEMPERATURES,
     CONF_VALVES,
     DEFAULTS,
     EVAL_INTERVAL,
@@ -60,8 +61,12 @@ class BoilerDemandController:
         self.options: dict[str, Any] = {**DEFAULTS, **entry.options}
         self.switch_entity: str = self.options[CONF_SWITCH]
         self.valves: list[str] = list(self.options[CONF_VALVES])
+        self.temperatures: dict[str, str | None] = dict(
+            self.options.get(CONF_TEMPERATURES) or {}
+        )
         self.settings = build_settings(self.options)
 
+        self.device_id: str | None = None  # main device registry id, set on setup
         self.enabled = True
         self.demand = False
         self.status = STATUS_IDLE
@@ -113,9 +118,11 @@ class BoilerDemandController:
 
     def needs_reload(self, options: Mapping[str, Any]) -> bool:
         """Whether new options change the watched entities."""
-        return options.get(CONF_SWITCH) != self.switch_entity or list(
-            options.get(CONF_VALVES, [])
-        ) != self.valves
+        return (
+            options.get(CONF_SWITCH) != self.switch_entity
+            or list(options.get(CONF_VALVES, [])) != self.valves
+            or dict(options.get(CONF_TEMPERATURES) or {}) != self.temperatures
+        )
 
     async def async_apply_options(self, options: Mapping[str, Any]) -> None:
         """Apply tunable options without a reload."""
@@ -143,6 +150,7 @@ class BoilerDemandController:
                 and new.state == STATE_ON
             ):
                 self.starts_today += 1
+                async_dispatcher_send(self.hass, self.signal)
         self.entry.async_create_task(self.hass, self.async_evaluate())
 
     async def _on_interval(self, _now: datetime) -> None:

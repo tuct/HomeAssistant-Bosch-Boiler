@@ -1,0 +1,11 @@
+# Boiler relay (XIAO ESP32-C3 + relay module) with a 1.8" ST7735 TFT.
+# Same node as boiler-relay-c3.yaml plus the display package; wiring in each file.
+
+packages:
+  base: !include boiler-relay-c3.yaml
+  tft: !include
+    file: boiler-tft-st7735.yaml
+    vars:
+      relay_id: boiler_relay
+      status_entity: sensor.heating_status
+      max_valve_entity: sensor.heating_max_valve_opening

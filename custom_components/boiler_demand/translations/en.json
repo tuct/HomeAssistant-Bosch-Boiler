@@ -22,6 +22,10 @@
           "valves": "Sensors reporting valve opening in %. Unavailable or negative values are ignored."
         }
       },
+      "rooms": {
+        "title": "Rooms",
+        "description": "Optional temperature sensor per room. {count} were detected on the valve devices and pre-filled. Each room appears as its own device with valve opening and temperature."
+      },
       "settings": {
         "title": "Control settings",
         "data": {
@@ -75,6 +79,10 @@
           "failsafe_after_minutes": "How long all valves must be offline before the failsafe acts.",
           "failsafe_mode": "What to do with the boiler when no valve reports data."
         }
+      },
+      "rooms": {
+        "title": "Rooms",
+        "description": "Optional temperature sensor per room. {count} were detected on the valve devices and pre-filled. Each room appears as its own device with valve opening and temperature."
       }
     },
     "error": {
@@ -122,7 +130,16 @@
       "boiler_starts_today": {
         "name": "Boiler starts today"
       },
-      "valve": {
+      "room_temperature": {
+        "name": "Room temperature",
+        "state_attributes": {
+          "source_entity": {
+            "name": "Source entity"
+          }
+        }
+      },
+      "valve_opening": {
+        "name": "Valve opening",
         "state_attributes": {
           "source_entity": {
             "name": "Source entity"

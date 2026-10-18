@@ -8,6 +8,8 @@ DOMAIN = "boiler_demand"
 
 CONF_SWITCH = "switch_entity"
 CONF_VALVES = "valves"
+# valve entity id -> room temperature sensor entity id (or None)
+CONF_TEMPERATURES = "temperature_sensors"
 CONF_ON_THRESHOLD = "on_threshold"
 CONF_OFF_THRESHOLD = "off_threshold"
 CONF_MIN_ON = "min_on_minutes"

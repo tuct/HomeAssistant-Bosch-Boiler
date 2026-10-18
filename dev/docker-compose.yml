@@ -1,0 +1,16 @@
+# Local Home Assistant for trying the Boiler Demand UI.
+#   docker compose -f dev/docker-compose.yml up -d   ->  http://localhost:8123
+# The integration is mounted read-only from this repo; restart the container after code changes:
+#   docker compose -f dev/docker-compose.yml restart
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: boiler-demand-dev
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./config:/config
+      - ../custom_components/boiler_demand:/config/custom_components/boiler_demand:ro
+    environment:
+      - TZ=Europe/Vienna
+    restart: unless-stopped

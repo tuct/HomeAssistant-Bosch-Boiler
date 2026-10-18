@@ -18,8 +18,11 @@
       "boiler_starts_today": {
         "default": "mdi:counter"
       },
-      "valve": {
+      "valve_opening": {
         "default": "mdi:valve"
+      },
+      "room_temperature": {
+        "default": "mdi:home-thermometer-outline"
       }
     },
     "number": {
