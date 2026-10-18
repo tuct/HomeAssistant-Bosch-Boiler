@@ -102,6 +102,17 @@ def valve_name(hass: HomeAssistant, valve: str) -> str:
     return valve
 
 
+def short_names(names: list[str]) -> list[str]:
+    """Drop leading words all names share ("Heizung Tobi", "Heizung Timon" -> "Tobi", "Timon")."""
+    if len(names) < 2:
+        return names
+    split = [name.split() for name in names]
+    common = 0
+    while all(len(words) > common + 1 and words[common] == split[0][common] for words in split):
+        common += 1
+    return [" ".join(words[common:]) for words in split]
+
+
 def valve_labels(hass: HomeAssistant, valves: list[str]) -> dict[str, str]:
     """Unique display label -> valve entity id (labels are form field names)."""
     labels: dict[str, str] = {}

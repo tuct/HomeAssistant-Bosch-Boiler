@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -25,9 +26,48 @@ from homeassistant.util import dt as dt_util
 from . import BoilerDemandConfigEntry
 from .const import DOMAIN
 from .controller import BoilerDemandController
-from .discovery import valve_name
+from .discovery import short_names, valve_name
 from .entity import BoilerDemandEntity
-from .logic import STATUSES
+from .logic import STATUSES, Settings
+
+ROLE_CODES = {"demand": "d", "holding": "h", "closed": "c", "offline": "o"}
+
+
+def valve_role(position: float | None, settings: Settings) -> str:
+    """demand (can start the boiler), holding (keeps it on), closed, offline."""
+    if position is None:
+        return "offline"
+    if position >= settings.on_threshold:
+        return "demand"
+    if position > settings.off_threshold:
+        return "holding"
+    return "closed"
+
+
+def _float_state(hass: HomeAssistant, entity_id: str | None) -> float | None:
+    if not entity_id or (state := hass.states.get(entity_id)) is None:
+        return None
+    try:
+        return round(float(state.state), 1)
+    except ValueError:
+        return None
+
+
+def rooms_json(hass: HomeAssistant, controller: BoilerDemandController) -> str:
+    """Compact room list for displays (ESPHome): name, temperature, valve %, role code."""
+    names = short_names([valve_name(hass, valve) for valve in controller.valves])
+    rooms = []
+    for name, valve in sorted(zip(names, controller.valves)):
+        position = controller.positions.get(valve)
+        rooms.append(
+            {
+                "n": name,
+                "t": _float_state(hass, controller.temperatures.get(valve)),
+                "v": None if position is None else round(position),
+                "r": ROLE_CODES[valve_role(position, controller.settings)],
+            }
+        )
+    return json.dumps(rooms, ensure_ascii=False, separators=(",", ":"))
 
 
 async def async_setup_entry(
@@ -121,6 +161,8 @@ class StatusSensor(BoilerDemandEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = STATUSES
+    # The room list changes often and is only for displays; keep it out of history.
+    _unrecorded_attributes = frozenset({"rooms"})
 
     @property
     def native_value(self) -> str:
@@ -133,6 +175,8 @@ class StatusSensor(BoilerDemandEntity, SensorEntity):
             "remaining_minutes": None if remaining is None else round(remaining / 60, 1),
             # Lets the dashboard card show/link the relay without extra config.
             "boiler_switch": self.controller.switch_entity,
+            # Dynamic room list for ESPHome displays (one text_sensor attribute).
+            "rooms": rooms_json(self.hass, self.controller),
         }
 
 
@@ -169,16 +213,10 @@ class ValveSensor(BoilerDemandEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         position = self.controller.positions.get(self._valve)
-        settings = self.controller.settings
-        if position is None:
-            role = "offline"
-        elif position >= settings.on_threshold:
-            role = "demand"
-        elif position > settings.off_threshold:
-            role = "holding"
-        else:
-            role = "closed"
-        return {"source_entity": self._valve, "role": role}
+        return {
+            "source_entity": self._valve,
+            "role": valve_role(position, self.controller.settings),
+        }
 
 
 class RoomTemperatureSensor(BoilerDemandEntity, SensorEntity):

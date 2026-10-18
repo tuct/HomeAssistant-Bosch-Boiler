@@ -1,0 +1,73 @@
+# Optional rotary encoder (KY-040 / EC11) for the TFT package.
+#   status / room page   turn = Status -> room 1 -> ... -> room N -> Status
+#                        press = menu
+#   menu                 turn = move between Automatik and OK, press = toggle / close
+#                        (15 s idle -> back to the status page)
+#
+# Needs boiler-tft-st7735.yaml (pages, navigation scripts).
+#
+# Include with:
+#   packages:
+#     rotary: !include boiler-rotary.yaml
+#
+# Wiring (XIAO ESP32-C3 -> encoder module):
+#   D4 (GPIO6) -> CLK / A     D5 (GPIO7) -> DT / B     D0 (GPIO2) -> SW
+#   3V3 -> + (module pull-ups), GND -> GND
+# GPIO2 is a strapping pin: do not hold the button while powering up.
+
+defaults:
+  rotary_a_pin: GPIO6
+  rotary_b_pin: GPIO7
+  rotary_button_pin: GPIO2
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        # Hand the encoder to the TFT package so it can switch input groups (menu / pages).
+        - lambda: id(ui_indev) = id(ui_encoder)->get_drv();
+
+sensor:
+  - platform: rotary_encoder
+    id: ui_rotary
+    internal: true
+    pin_a:
+      number: ${rotary_a_pin}
+      mode: { input: true, pullup: true }
+    pin_b:
+      number: ${rotary_b_pin}
+      mode: { input: true, pullup: true }
+    resolution: 1
+    # Outside the menu, turning flips through the rooms (LVGL focus is used only in the menu).
+    on_clockwise:
+      - if:
+          condition:
+            lambda: return !id(ui_menu_open);
+          then:
+            - script.execute: ui_nav_next
+    on_anticlockwise:
+      - if:
+          condition:
+            lambda: return !id(ui_menu_open);
+          then:
+            - script.execute: ui_nav_prev
+
+binary_sensor:
+  - platform: gpio
+    id: ui_rotary_button
+    internal: true
+    pin:
+      number: ${rotary_button_pin}
+      inverted: true
+      ignore_strapping_warning: true  # GPIO2: don't hold the button at power-up
+      mode: { input: true, pullup: true }
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+
+lvgl:
+  encoders:
+    - id: ui_encoder
+      sensor: ui_rotary
+      enter_button: ui_rotary_button
+      long_press_time: 800ms

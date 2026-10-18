@@ -97,7 +97,9 @@ class BoilerDemandController:
 
         self._unsubs.append(
             async_track_state_change_event(
-                self.hass, [*self.valves, self.switch_entity], self._on_state_change
+                self.hass,
+                [*self.valves, self.switch_entity, *filter(None, self.temperatures.values())],
+                self._on_state_change,
             )
         )
         self._unsubs.append(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 pytest.importorskip("pytest_homeassistant_custom_component")
@@ -279,6 +281,15 @@ async def test_rooms_group_valve_and_temperature(setup_hass: HomeAssistant) -> N
     hass.states.async_set(TOBI_TEMP, "22.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await hass.async_block_till_done()
     assert hass.states.get(TOBI_ROOM_TEMP).state == "22.0"
+
+    # Compact room list for ESPHome displays; follows temperature and valve changes.
+    hass.states.async_set(VALVES[0], "30", {"unit_of_measurement": "%"})
+    await hass.async_block_till_done()
+    rooms = json.loads(hass.states.get("sensor.heating_status").attributes["rooms"])
+    assert rooms == [
+        {"n": "Küche", "t": 19.0, "v": 30, "r": "d"},
+        {"n": "Tobi", "t": 22.0, "v": 0, "r": "c"},
+    ]
 
     # Valve + temperature share one room device, linked to the main device, in the valve area.
     ent_reg, dev_reg = er.async_get(hass), dr.async_get(hass)

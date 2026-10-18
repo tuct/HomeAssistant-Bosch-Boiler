@@ -141,8 +141,26 @@ Optional:
 
 | Part | Notes |
 | --- | --- |
-| 1.8" TFT, ST7735, 128×160, SPI | Boiler state, Boiler Demand status, max valve opening, HA connection / FAILSAFE, time. Package `esphome/boiler-tft-st7735.yaml`, complete node `esphome/boiler-relay-c3-tft.yaml` (wiring in the file) |
-| OLED (SH1106 / SSD1306), rotary encoder with button, touch screen | Local status and manual override, see `esphome/mista-heatcontrol.yaml` |
+| 1.8" TFT, ST7735, 128×160, SPI | LVGL UI. Status page: boiler state, Boiler Demand status, max valve opening, HA connection / FAILSAFE, time. Room page: one room at a time (temperature, valve bar, role) – the room list comes from HA at runtime, no reflash when rooms change. Menu: Automatik on/off. Package `esphome/boiler-tft-st7735.yaml`, complete node `esphome/boiler-relay-c3-tft.yaml` (wiring in the file) |
+| Rotary encoder with button (KY-040 / EC11), on top of the TFT | Turn to flip Status → rooms, press for the Automatik menu. Package `esphome/boiler-rotary.yaml`, complete node `esphome/boiler-relay-c3-tft-rotary.yaml`. Needs the ESPHome device option *Allow the device to perform Home Assistant actions* |
+| OLED (SH1106 / SSD1306), touch screen | Local status and manual override, see `esphome/mista-heatcontrol.yaml` |
+
+The ESPHome files are layered packages – pick the node that matches your hardware:
+
+| Node | Layers |
+| --- | --- |
+| `boiler-relay-c3.yaml` | base: relay + watchdog |
+| `boiler-relay-c3-tft.yaml` | base → TFT status screen |
+| `boiler-relay-c3-tft-rotary.yaml` | base → TFT → rotary menu |
+
+Rotary controls: turn flips Status → room 1 → … → room N → Status; press opens the menu with the
+*Automatik* switch (set `allow_automatic_toggle: "false"` in the TFT package to disable it). In the
+menu, turn moves between *Automatik* and *OK*; 15 s idle returns to the status page. If Home Assistant
+does not allow the device's actions, the switch flips back to the real state.
+
+The room list is the `rooms` attribute of `sensor.<name>_status` – a compact JSON list
+(`n` name, `t` temperature, `v` valve %, `r` role: d demand / h holding / c closed / o offline) that any
+display can use.
 
 Safety: check the boiler manual for the voltage on the thermostat terminals (24 V or 230 V). For 230 V,
 use a relay module rated for mains with proper isolation and an enclosure; never put mains on the ESP
