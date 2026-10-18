@@ -5,10 +5,15 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers.typing import ConfigType
 
+from .card import async_register_card
+from .const import DOMAIN
 from .controller import BoilerDemandController
 from .entity import main_device_info
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -19,6 +24,12 @@ PLATFORMS = [
 ]
 
 type BoilerDemandConfigEntry = ConfigEntry[BoilerDemandController]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the dashboard card once per Home Assistant run."""
+    await async_register_card(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: BoilerDemandConfigEntry) -> bool:

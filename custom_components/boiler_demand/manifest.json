@@ -1,6 +1,10 @@
 {
   "domain": "boiler_demand",
   "name": "Boiler Demand",
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
   "codeowners": [
     "@tuct"
   ],
@@ -11,5 +15,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/tuct/HomeAssistant-Bosch-Boiler/issues",
   "requirements": [],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

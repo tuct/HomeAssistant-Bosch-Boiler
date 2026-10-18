@@ -57,6 +57,23 @@ Home Assistant may put the area in front of these entity ids (e.g. `sensor.kuche
 
 ## Dashboard card
 
+The integration ships its own card – no extra HACS frontend repo or dashboard resource needed.
+Edit a dashboard → *Add card* → **Boiler Demand** (or search "Boiler").
+
+```yaml
+type: custom:boiler-demand-card
+device_id: <Boiler Demand device>  # optional, defaults to the first one
+title: Heizung                     # optional
+show_controls: true                # automatic switch + threshold chips
+```
+
+It shows the boiler state (flame), the controller status (waiting / failsafe / …), demand, max valve
+opening and starts today, plus every room with temperature and a valve bar marked with the off/on
+thresholds. Rooms are found automatically; tap anything for its details, tap *Automatic* to toggle.
+After an update, reload the browser page once if the old card is still shown.
+
+Built-in cards work too:
+
 ```yaml
 type: entities
 title: Heizung

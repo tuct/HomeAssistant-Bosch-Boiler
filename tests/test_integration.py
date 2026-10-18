@@ -294,6 +294,23 @@ async def test_rooms_group_valve_and_temperature(setup_hass: HomeAssistant) -> N
     await hass.async_block_till_done()
 
 
+async def test_card_is_served(setup_hass: HomeAssistant, hass_client) -> None:
+    hass = setup_hass
+    assert await async_setup_component(hass, "http", {})
+    entry = await _create_entry(hass)
+
+    client = await hass_client()
+    response = await client.get("/boiler_demand/boiler-demand-card.js")
+    assert response.status == 200
+    body = await response.text()
+    assert 'customElements.define("boiler-demand-card"' in body
+    # Status sensor tells the card which relay to show.
+    assert hass.states.get("sensor.heating_status").attributes["boiler_switch"] == BOILER
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 async def test_duplicate_switch_aborts(setup_hass: HomeAssistant) -> None:
     hass = setup_hass
     entry = await _create_entry(hass)

@@ -130,7 +130,9 @@ class StatusSensor(BoilerDemandEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         remaining = self.controller.remaining_s
         return {
-            "remaining_minutes": None if remaining is None else round(remaining / 60, 1)
+            "remaining_minutes": None if remaining is None else round(remaining / 60, 1),
+            # Lets the dashboard card show/link the relay without extra config.
+            "boiler_switch": self.controller.switch_entity,
         }
 
 
