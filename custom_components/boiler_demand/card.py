@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from homeassistant.components.http import StaticPathConfig
@@ -25,5 +26,10 @@ async def async_register_card(hass: HomeAssistant) -> None:
         from homeassistant.components.frontend import add_extra_js_url
 
         version = (await async_get_integration(hass, DOMAIN)).version
-        # Version in the URL so browsers pick up a new card after an update.
-        add_extra_js_url(hass, f"{CARD_URL}?v={version}")
+        digest = await hass.async_add_executor_job(_file_hash)
+        # Version + content hash in the URL so browsers pick up every changed card.
+        add_extra_js_url(hass, f"{CARD_URL}?v={version}-{digest}")
+
+
+def _file_hash() -> str:
+    return hashlib.sha256(CARD_PATH.read_bytes()).hexdigest()[:8]

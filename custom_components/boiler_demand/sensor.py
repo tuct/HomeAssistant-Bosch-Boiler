@@ -32,6 +32,7 @@ from homeassistant.util import dt as dt_util
 from . import BoilerDemandConfigEntry
 from .const import DOMAIN
 from .controller import BoilerDemandController
+from .autotune import MIN_SAMPLES
 from .discovery import short_names, valve_name
 from .entity import BoilerDemandEntity
 from .logic import STATUSES
@@ -196,6 +197,7 @@ class StatusSensor(BoilerDemandEntity, SensorEntity):
             "remaining_minutes": None if remaining is None else round(remaining / 60, 1),
             # Lets the dashboard card show/link the relay without extra config.
             "boiler_switch": self.controller.switch_entity,
+            "flow_sensor": self.controller.flow_sensor,
             "flow_temperature": self.controller.flow_temperature,
             # Dynamic room list for ESPHome displays (one text_sensor attribute).
             "rooms": rooms_json(self.hass, self.controller),
@@ -267,6 +269,7 @@ class HoldingLevelSensor(BoilerDemandEntity, SensorEntity):
         learning = self.controller.tuner.valves.get(self._valve)
         return {
             "samples": learning.samples if learning else 0,
+            "samples_needed": MIN_SAMPLES,
             "on_threshold": round(on),
             "off_threshold": round(off),
             "stuck_open": self._valve in self.controller.stuck_valves,

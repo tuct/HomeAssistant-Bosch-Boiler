@@ -64,22 +64,45 @@ under the Boiler Demand device and placed in the valve's area:
 
 Home Assistant may put the area in front of these entity ids (e.g. `sensor.kuche_heizung_kuche_valve_opening`).
 
-## Dashboard card
+## Dashboard cards
 
-The integration ships its own card – no extra HACS frontend repo or dashboard resource needed.
-Edit a dashboard → *Add card* → **Boiler Demand** (or search "Boiler").
+The integration ships two cards – no extra HACS frontend repo or dashboard resource needed.
+Edit a dashboard → *Add card* → **Boiler Demand** / **Boiler Demand history** (or search "Boiler").
+
+### Boiler Demand – current state
 
 ```yaml
 type: custom:boiler-demand-card
 device_id: <Boiler Demand device>  # optional, defaults to the first one
 title: Heizung                     # optional
-show_controls: true                # automatic switch + threshold chips
+show_controls: true                # automatic + auto-tune switches, threshold chips
 ```
 
 It shows the boiler state (flame), the controller status (waiting / failsafe / …), demand, max valve
 opening and starts today, plus every room with temperature and a valve bar marked with the off/on
-thresholds. Rooms are found automatically; tap anything for its details, tap *Automatic* to toggle.
-After an update, reload the browser page once if the old card is still shown.
+thresholds. Below each bar a line shows auto-tune for that room: the learned holding level (or
+*learning n/3*) and the on/off thresholds it calculated – dimmed and marked *inactive* while
+auto-tune is off. With auto-tune on, the bar marks move to the room's own thresholds and the
+threshold chips read *≥*, because they are only the lower limit. ⚠ marks a valve stuck open.
+Rooms are found automatically; tap anything for its details, tap *Automatic* / *Auto-tune* to toggle.
+
+### Boiler Demand history – last 24 h / 7 days
+
+```yaml
+type: custom:boiler-demand-history-card
+device_id: <Boiler Demand device>  # optional
+title: Heizung                     # optional
+range: 7d                          # 24h | 7d, switchable on the card
+```
+
+From Home Assistant's recorder (no extra storage): boiler on time, starts per day and longest run;
+a timeline of when the boiler ran and, with a flow sensor, the flow temperature; and per room a chart
+of valve opening, room temperature and the learned holding level, with a strip underneath showing
+when the room called for heat (*demand*) or kept the boiler on (*holding*). Hover or drag across the
+charts for the values at that time. The history shows the source sensors, so it reaches back before
+Boiler Demand was installed (the recorder keeps 10 days by default).
+
+After an update, reload the browser page once if an old card is still shown.
 
 Built-in cards work too:
 
@@ -350,10 +373,21 @@ the relay. See `esphome/mista-heatcontrol.yaml` for a complete node.
 docker compose -f dev/docker-compose.yml up -d
 ```
 
-Open http://localhost:8123, create a user, then add *Boiler Demand* (boiler: *Therme (simulated relay)*).
-Move the sliders on the Overview dashboard; `-1` simulates a valve that is not ready. After changing
-the code: `docker compose -f dev/docker-compose.yml restart`. The simulated sensors have no device, so
-assign them to areas (or pick temperatures by hand in the Rooms step) to try temperature detection.
+Open http://localhost:8123, create a user, then add *Boiler Demand* (boiler: *Therme (simulated relay)*,
+flow sensor: *Boiler flow temperature*). Move the sliders on the Overview dashboard; `-1` simulates a
+valve that is not ready. After changing the code: `docker compose -f dev/docker-compose.yml restart`.
+The simulated sensors have no device, so assign them to areas (or pick temperatures by hand in the
+Rooms step) to try temperature detection.
+
+To fill the history card and auto-tune with realistic data, replay a history export (valve sensors)
+into the dev instance – it is shifted to end now, boiler runs come from Boiler Demand's logic,
+temperatures are synthesised and the learned holding levels are pre-filled:
+
+```
+docker compose -f dev/docker-compose.yml stop
+python dev/seed_history.py history.csv
+docker compose -f dev/docker-compose.yml start
+```
 
 ### Tests
 

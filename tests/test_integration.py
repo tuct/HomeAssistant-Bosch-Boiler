@@ -462,6 +462,7 @@ async def test_flow_sensor_gates_learning_and_reports_no_heat(setup_hass: HomeAs
     for _ in range(8):
         await _tick(hass, freezer, timedelta(minutes=10))
     assert hass.states.get("sensor.heating_status").attributes["flow_temperature"] == 18.0
+    assert hass.states.get("sensor.heating_status").attributes["flow_sensor"] == flow
     assert controller.tuner.valves[VALVES[1]].samples == 0
     assert ir.async_get(hass).async_get_issue(DOMAIN, no_heat_id) is not None
     await _tick(hass, freezer, timedelta(hours=4))

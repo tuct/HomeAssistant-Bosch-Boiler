@@ -50,6 +50,13 @@ input_number:
     max: 30
     step: 0.1
     unit_of_measurement: "°C"
+  flow_temp:
+    initial: 52
+    name: Boiler flow temperature
+    min: 10
+    max: 80
+    step: 1
+    unit_of_measurement: "°C"
   kuche_temp:
     initial: 19.4
     name: Küche temperature
@@ -84,6 +91,12 @@ template:
         device_class: temperature
         unit_of_measurement: "°C"
         state: "{{ states('input_number.timon_temp') }}"
+      # Flow pipe sensor (DS18B20 on the relay node); pick it in Boiler Demand -> Configure.
+      - name: Boiler flow temperature
+        unique_id: sim_boiler_flow_temperature
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state: "{{ states('input_number.flow_temp') }}"
       - name: Heizung Küche temperature
         unique_id: sim_kuche_temperature
         device_class: temperature
