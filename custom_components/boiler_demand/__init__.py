@@ -6,17 +6,19 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
 from .card import async_register_card
 from .const import DOMAIN
-from .controller import BoilerDemandController
+from .controller import STORAGE_VERSION, BoilerDemandController, storage_key
 from .entity import main_device_info
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
@@ -55,6 +57,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: BoilerDemandConfigEntry)
 async def async_unload_entry(hass: HomeAssistant, entry: BoilerDemandConfigEntry) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: BoilerDemandConfigEntry) -> None:
+    """Delete the learned auto-tune data with the entry."""
+    await Store(hass, STORAGE_VERSION, storage_key(entry.entry_id)).async_remove()
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: BoilerDemandConfigEntry) -> None:

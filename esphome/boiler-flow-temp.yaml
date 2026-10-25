@@ -1,0 +1,30 @@
+# Flow pipe (Vorlauf) temperature: DS18B20 on 1-wire. Shows whether the boiler really
+# delivers heat (a valve open at 100 % for hours with a cold flow pipe = boiler not firing).
+#
+# Include with:
+#   packages:
+#     flow_temp: !include boiler-flow-temp.yaml
+#
+# Wiring (XIAO ESP32-C3 -> DS18B20, waterproof probe colours):
+#   D7 (GPIO20) -> DQ (yellow)
+#   3V3         -> VDD (red), MP1584 3.3 V rail
+#   GND         -> GND (black)
+#   4.7 kΩ pull-up between DQ and 3V3 (required, the internal pull-up is too weak)
+# Mounting: on the flow pipe right after the boiler, with thermal paste and a cable tie
+# or hose clamp, insulation wrapped over it. Reads a few °C below the water temperature.
+# GPIO20 is UART0 RX; free because the logger uses the USB serial (default on the C3).
+
+defaults:
+  one_wire_pin: GPIO20  # XIAO D7
+
+one_wire:
+  - platform: gpio
+    pin: ${one_wire_pin}
+
+sensor:
+  - platform: dallas_temp
+    id: flow_temperature
+    name: "Flow temperature"
+    icon: mdi:pipe
+    update_interval: 30s
+    accuracy_decimals: 1

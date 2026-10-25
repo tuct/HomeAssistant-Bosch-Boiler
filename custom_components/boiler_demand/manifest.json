@@ -15,5 +15,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/tuct/HomeAssistant-Bosch-Boiler/issues",
   "requirements": [],
-  "version": "0.6.0"
+  "version": "0.7.0"
 }

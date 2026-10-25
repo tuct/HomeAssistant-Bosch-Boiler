@@ -16,6 +16,8 @@ CONF_MIN_ON = "min_on_minutes"
 CONF_MIN_OFF = "min_off_minutes"
 CONF_FAILSAFE_AFTER = "failsafe_after_minutes"
 CONF_FAILSAFE_MODE = "failsafe_mode"
+# Optional temperature sensor on the boiler's flow pipe (e.g. DS18B20 on the relay node).
+CONF_FLOW_SENSOR = "flow_sensor"
 
 FAILSAFE_ON = "on"
 FAILSAFE_OFF = "off"
@@ -42,6 +44,11 @@ TUNABLE_OPTIONS = (
 )
 
 EVAL_INTERVAL = timedelta(seconds=30)
+# Flow pipe at or above this: the boiler really delivers heat. A clamp-on sensor reads a
+# few degrees below the water temperature.
+FLOW_HOT_C = 30.0
+# Boiler switch on this long with a cold flow pipe: "boiler not heating" repair issue.
+NO_HEAT_AFTER = timedelta(minutes=30)
 # Do not resend the same switch command within this window.
 COMMAND_DEBOUNCE_S = 15.0
 

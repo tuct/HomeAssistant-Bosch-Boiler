@@ -30,6 +30,7 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_FAILSAFE_AFTER,
     CONF_FAILSAFE_MODE,
+    CONF_FLOW_SENSOR,
     CONF_MIN_OFF,
     CONF_MIN_ON,
     CONF_OFF_THRESHOLD,
@@ -41,7 +42,12 @@ from .const import (
     DOMAIN,
     FAILSAFE_MODES,
 )
-from .discovery import find_room_temperature, find_valve_candidates, valve_labels
+from .discovery import (
+    find_flow_sensor,
+    find_room_temperature,
+    find_valve_candidates,
+    valve_labels,
+)
 
 SWITCH_SELECTOR = EntitySelector(EntitySelectorConfig(domain=["switch", "input_boolean"]))
 VALVES_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor", multiple=True))
@@ -90,6 +96,12 @@ def _settings_schema(values: Mapping[str, Any]) -> dict[vol.Marker, Any]:
             )
         ),
     }
+
+
+def _flow_field(suggested: str | None) -> dict[vol.Marker, Any]:
+    """Optional flow pipe temperature sensor."""
+    description = {"suggested_value": suggested} if suggested else None
+    return {vol.Optional(CONF_FLOW_SENSOR, description=description): TEMPERATURE_SELECTOR}
 
 
 def _rooms_form(
@@ -201,13 +213,20 @@ class BoilerDemandConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_TEMPERATURES: self._data[CONF_TEMPERATURES],
                     **user_input,
                 }
+                if not options.get(CONF_FLOW_SENSOR):
+                    options.pop(CONF_FLOW_SENSOR, None)
                 return self.async_create_entry(
                     title=self._data[CONF_NAME], data={}, options=options
                 )
 
+        flow = (user_input or {}).get(CONF_FLOW_SENSOR) or find_flow_sensor(
+            self.hass, self._data[CONF_SWITCH]
+        )
         return self.async_show_form(
             step_id="settings",
-            data_schema=vol.Schema(_settings_schema({**DEFAULTS, **(user_input or {})})),
+            data_schema=vol.Schema(
+                {**_flow_field(flow), **_settings_schema({**DEFAULTS, **(user_input or {})})}
+            ),
             errors=errors,
         )
 
@@ -240,9 +259,14 @@ class BoilerDemandOptionsFlow(OptionsFlow):
 
         values = {**DEFAULTS, **self.config_entry.options, **(user_input or {})}
         detected = find_valve_candidates(self.hass)
+        if user_input is None and CONF_FLOW_SENSOR not in self.config_entry.options:
+            flow = find_flow_sensor(self.hass, values[CONF_SWITCH])
+        else:
+            flow = values.get(CONF_FLOW_SENSOR)
         schema = {
             vol.Required(CONF_SWITCH, default=values[CONF_SWITCH]): SWITCH_SELECTOR,
             vol.Required(CONF_VALVES, default=values[CONF_VALVES]): VALVES_SELECTOR,
+            **_flow_field(flow),
             **_settings_schema(values),
         }
         return self.async_show_form(

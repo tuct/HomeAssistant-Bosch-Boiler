@@ -11,13 +11,15 @@
 #     rotary: !include boiler-rotary.yaml
 #
 # Wiring (XIAO ESP32-C3 -> encoder module):
-#   D4 (GPIO6) -> CLK / A     D5 (GPIO7) -> DT / B     D0 (GPIO2) -> SW
+#   D4 (GPIO6) -> CLK / A     
+#   D5 (GPIO7) -> DT / B     
+#   D0 (GPIO2) -> SW
 #   + (module pull-ups) -> MP1584 3.3 V rail (same as relay + TFT), GND -> GND
 # GPIO2 is a strapping pin: do not hold the button while powering up.
 
 defaults:
-  rotary_a_pin: GPIO6
-  rotary_b_pin: GPIO7
+  rotary_a_pin: GPIO7
+  rotary_b_pin: GPIO6
   rotary_button_pin: GPIO2
 
 esphome:

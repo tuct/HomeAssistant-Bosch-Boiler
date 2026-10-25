@@ -34,7 +34,8 @@
           "min_on_minutes": "Minimum on time",
           "min_off_minutes": "Minimum off time",
           "failsafe_after_minutes": "Failsafe after",
-          "failsafe_mode": "Failsafe action"
+          "failsafe_mode": "Failsafe action",
+          "flow_sensor": "Flow temperature sensor"
         },
         "data_description": {
           "on_threshold": "Boiler turns on as soon as any valve is at least this far open.",
@@ -42,7 +43,8 @@
           "min_on_minutes": "Boiler stays on at least this long before it may turn off.",
           "min_off_minutes": "Boiler stays off at least this long before it may turn on again.",
           "failsafe_after_minutes": "How long all valves must be offline before the failsafe acts.",
-          "failsafe_mode": "What to do with the boiler when no valve reports data."
+          "failsafe_mode": "What to do with the boiler when no valve reports data.",
+          "flow_sensor": "Optional. Temperature sensor on the boiler's flow pipe (e.g. DS18B20 on the relay node). Auto-tune then only learns while heat really arrives, and Repairs warns if the boiler is switched on but does not heat."
         }
       }
     },
@@ -67,7 +69,8 @@
           "min_on_minutes": "Minimum on time",
           "min_off_minutes": "Minimum off time",
           "failsafe_after_minutes": "Failsafe after",
-          "failsafe_mode": "Failsafe action"
+          "failsafe_mode": "Failsafe action",
+          "flow_sensor": "Flow temperature sensor"
         },
         "data_description": {
           "switch_entity": "Relay on the boiler's room-thermostat contact (switch or input_boolean).",
@@ -77,7 +80,8 @@
           "min_on_minutes": "Boiler stays on at least this long before it may turn off.",
           "min_off_minutes": "Boiler stays off at least this long before it may turn on again.",
           "failsafe_after_minutes": "How long all valves must be offline before the failsafe acts.",
-          "failsafe_mode": "What to do with the boiler when no valve reports data."
+          "failsafe_mode": "What to do with the boiler when no valve reports data.",
+          "flow_sensor": "Optional. Temperature sensor on the boiler's flow pipe (e.g. DS18B20 on the relay node). Auto-tune then only learns while heat really arrives, and Repairs warns if the boiler is switched on but does not heat."
         }
       },
       "rooms": {
@@ -130,6 +134,26 @@
       "boiler_starts_today": {
         "name": "Boiler starts today"
       },
+      "effective_min_off": {
+        "name": "Effective minimum off time"
+      },
+      "holding_level": {
+        "name": "Holding level",
+        "state_attributes": {
+          "samples": {
+            "name": "Samples"
+          },
+          "on_threshold": {
+            "name": "On threshold"
+          },
+          "off_threshold": {
+            "name": "Off threshold"
+          },
+          "stuck_open": {
+            "name": "Stuck open"
+          }
+        }
+      },
       "room_temperature": {
         "name": "Room temperature",
         "state_attributes": {
@@ -173,6 +197,14 @@
     "switch": {
       "automatic_control": {
         "name": "Automatic control"
+      },
+      "auto_tune": {
+        "name": "Auto-tune"
+      }
+    },
+    "button": {
+      "reset_learning": {
+        "name": "Reset auto-tune learning"
       }
     },
     "select": {
@@ -189,6 +221,16 @@
   "exceptions": {
     "off_above_on": {
       "message": "Off threshold ({off} %) must be lower than on threshold ({on} %)."
+    }
+  },
+  "issues": {
+    "valve_stuck_open": {
+      "title": "{valve}: valve stays fully open",
+      "description": "The valve `{entity_id}` has been open 95 % or more for {hours} hours while the boiler was heating. Either the valve is stuck, or no heat reaches this radiator (air in the radiator, closed lock shield, boiler not actually heating). As long as it stays open, it keeps the boiler running.\n\nThis warning clears itself once the valve closes below 95 %."
+    },
+    "no_heat": {
+      "title": "{name}: boiler is not heating",
+      "description": "The boiler switch has been on for {minutes} minutes, but the flow pipe (`{flow_sensor}`) is still below {temperature} °C. Check that the boiler is switched on, not in summer / hot-water-only mode and has no fault.\n\nThis warning clears itself once the flow pipe is hot or the switch turns off."
     }
   }
 }

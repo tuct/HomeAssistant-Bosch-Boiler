@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 import json
 
 import pytest
@@ -15,11 +16,13 @@ from homeassistant.helpers import (
     area_registry as ar,
     device_registry as dr,
     entity_registry as er,
+    issue_registry as ir,
 )
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.boiler_demand.const import (
+    CONF_FLOW_SENSOR,
     CONF_MIN_OFF,
     CONF_MIN_ON,
     CONF_OFF_THRESHOLD,
@@ -331,3 +334,168 @@ async def test_duplicate_switch_aborts(setup_hass: HomeAssistant) -> None:
     assert result["reason"] == "already_configured"
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+def _entity(hass: HomeAssistant, entry, platform: str, key: str) -> str:
+    entity_id = er.async_get(hass).async_get_entity_id(platform, DOMAIN, f"{entry.entry_id}_{key}")
+    assert entity_id is not None, key
+    return entity_id
+
+
+async def _tick(hass: HomeAssistant, freezer, delta: timedelta) -> None:
+    freezer.tick(delta)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    await hass.async_block_till_done()
+
+
+async def test_auto_tune_uses_learned_thresholds(setup_hass: HomeAssistant, freezer) -> None:
+    hass = setup_hass
+    entry = await _create_entry(hass, **{CONF_MIN_ON: 0, CONF_MIN_OFF: 0})
+    controller = entry.runtime_data
+    auto_tune = _entity(hass, entry, "switch", "auto_tune")
+    holding = _room_entity(hass, entry, "holding", VALVES[0])
+    assert hass.states.get(auto_tune).state == "off"
+    assert hass.states.get(holding).state == "unknown"
+    assert hass.states.get(_entity(hass, entry, "sensor", "effective_min_off")).state == "0.0"
+
+    # Kueche has learned that it holds its room warm at 30 %.
+    controller.tuner.load({"valves": {VALVES[0]: {"holding": 30, "samples": 5}}})
+    await hass.services.async_call("switch", "turn_on", {"entity_id": auto_tune}, blocking=True)
+    await hass.async_block_till_done()
+    state = hass.states.get(holding)
+    assert state.state == "30.0"
+    assert state.attributes["on_threshold"] == 40 and state.attributes["off_threshold"] == 33
+
+    # 35 % is above the configured on threshold (25) but below Kueche's own (40).
+    await _set_valves(hass, "35", "0")
+    assert hass.states.get(BOILER).state == "off"
+    assert hass.states.get(_room_entity(hass, entry, "valve", VALVES[0])).attributes["role"] == "holding"
+
+    # 45 % starts the boiler only after the 3 min on delay.
+    await _set_valves(hass, "45", "0")
+    assert hass.states.get(BOILER).state == "off"
+    await _tick(hass, freezer, timedelta(minutes=3, seconds=30))
+    assert hass.states.get(BOILER).state == "on"
+
+    # Back at its holding level (below 33 %) the room is warm: boiler off.
+    await _set_valves(hass, "30", "0")
+    assert hass.states.get(BOILER).state == "off"
+
+    # Auto-tune off: the configured 25 % applies again, without delay.
+    await hass.services.async_call("switch", "turn_off", {"entity_id": auto_tune}, blocking=True)
+    await _set_valves(hass, "35", "0")
+    assert hass.states.get(BOILER).state == "on"
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_stuck_open_valve_raises_repair(setup_hass: HomeAssistant, freezer) -> None:
+    hass = setup_hass
+    entry = await _create_entry(hass, **{CONF_MIN_ON: 0, CONF_MIN_OFF: 0})
+    issue_id = f"valve_stuck_open_{entry.entry_id}_{VALVES[0]}"
+    holding = _room_entity(hass, entry, "holding", VALVES[0])
+
+    await _set_valves(hass, "100", "0")
+    assert hass.states.get(BOILER).state == "on"
+    await _tick(hass, freezer, timedelta(seconds=30))
+    await _tick(hass, freezer, timedelta(hours=3, minutes=59))
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+    await _tick(hass, freezer, timedelta(minutes=1))
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    assert issue is not None and issue.translation_key == "valve_stuck_open"
+    assert issue.translation_placeholders["valve"] == "Heizung Küche"
+    assert hass.states.get(holding).attributes["stuck_open"] is True
+
+    # The valve closes: the issue clears itself.
+    await _set_valves(hass, "50", "0")
+    await _tick(hass, freezer, timedelta(seconds=30))
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_learning_is_stored_and_reset(setup_hass: HomeAssistant, hass_storage) -> None:
+    hass = setup_hass
+    entry = await _create_entry(hass)
+    controller = entry.runtime_data
+    holding = _room_entity(hass, entry, "holding", VALVES[0])
+
+    controller.tuner.load({"valves": {VALVES[0]: {"holding": 30, "samples": 5}}})
+    await controller._store.async_save(controller.tuner.as_dict())
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(holding).state == "30.0"
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": _entity(hass, entry, "button", "reset_learning")}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(holding).state == "unknown"
+    assert hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"] == {"valves": {}}
+
+    # Removing the entry deletes the stored data.
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert f"{DOMAIN}.{entry.entry_id}" not in hass_storage
+
+
+async def test_flow_sensor_gates_learning_and_reports_no_heat(setup_hass: HomeAssistant, freezer) -> None:
+    hass = setup_hass
+    flow = "sensor.boiler_flow_temperature"
+    hass.states.async_set(flow, "18.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    entry = await _create_entry(hass, **{CONF_MIN_ON: 0, CONF_MIN_OFF: 0, CONF_FLOW_SENSOR: flow})
+    controller = entry.runtime_data
+    assert controller.flow_sensor == flow
+    no_heat_id = f"no_heat_{entry.entry_id}"
+    stuck_id = f"valve_stuck_open_{entry.entry_id}_{VALVES[0]}"
+
+    # Switch on, flow pipe cold: nothing is learned, a fully open valve is not "stuck",
+    # and after 30 min Repairs reports that the boiler does not heat.
+    await _set_valves(hass, "100", "30")
+    assert hass.states.get(BOILER).state == "on"
+    for _ in range(8):
+        await _tick(hass, freezer, timedelta(minutes=10))
+    assert hass.states.get("sensor.heating_status").attributes["flow_temperature"] == 18.0
+    assert controller.tuner.valves[VALVES[1]].samples == 0
+    assert ir.async_get(hass).async_get_issue(DOMAIN, no_heat_id) is not None
+    await _tick(hass, freezer, timedelta(hours=4))
+    assert ir.async_get(hass).async_get_issue(DOMAIN, stuck_id) is None
+
+    # Flow pipe hot: the warning clears and the steady 30 % valve is learned.
+    hass.states.async_set(flow, "55.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await _tick(hass, freezer, timedelta(seconds=30))
+    assert ir.async_get(hass).async_get_issue(DOMAIN, no_heat_id) is None
+    for _ in range(120):
+        await _tick(hass, freezer, timedelta(seconds=30))
+    assert controller.tuner.holding(VALVES[1]) == 30.0
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_flow_sensor_found_on_relay_device(setup_hass: HomeAssistant) -> None:
+    hass = setup_hass
+    from custom_components.boiler_demand.discovery import find_flow_sensor
+
+    esphome = MockConfigEntry(domain="esphome")
+    esphome.add_to_hass(hass)
+    ent_reg, dev_reg = er.async_get(hass), dr.async_get(hass)
+    node = dev_reg.async_get_or_create(
+        config_entry_id=esphome.entry_id, identifiers={("esphome", "boiler-relay")}, name="Boiler Relay"
+    )
+    ent_reg.async_get_or_create(
+        "switch", "esphome", "relay", suggested_object_id="boiler_relay_boiler", device_id=node.id
+    )
+    ent_reg.async_get_or_create(
+        "sensor", "esphome", "wifi", suggested_object_id="boiler_relay_wifi_signal",
+        device_id=node.id, original_device_class="signal_strength",
+    )
+    ent_reg.async_get_or_create(
+        "sensor", "esphome", "flow", suggested_object_id="boiler_relay_flow_temperature",
+        device_id=node.id, original_device_class="temperature",
+    )
+    assert find_flow_sensor(hass, "switch.boiler_relay_boiler") == "sensor.boiler_relay_flow_temperature"
+    assert find_flow_sensor(hass, BOILER) is None

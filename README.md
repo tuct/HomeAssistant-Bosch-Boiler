@@ -13,6 +13,10 @@ sensor that reports valve opening in % (ZHA, Zigbee2MQTT, ...).
 - **Rooms** – each valve becomes a room device with its valve opening and (optional) room temperature;
   the temperature sensor on the same TRV device (or the only one in its area) is found automatically.
 - **Dashboard controls** – thresholds, times, failsafe and an automatic-control switch are entities.
+- **Auto-tune** (optional) – learns per radiator at which opening its room stays warm and sets the
+  thresholds per valve; adds an on delay and stretches the minimum off time when the boiler starts
+  too often. Warns in *Repairs* about valves stuck open and (with a flow pipe sensor) a boiler that
+  does not heat.
 
 ## Install
 
@@ -26,7 +30,8 @@ Then: Settings → Devices & services → Add integration → *Boiler Demand*.
 1. Name and boiler switch.
 2. Valve sensors (detected ones are pre-selected).
 3. Rooms: a temperature sensor per valve (optional, detected ones are pre-filled).
-4. Thresholds, minimum times and failsafe.
+4. Flow temperature sensor (optional, pre-filled if the relay's device has one), thresholds,
+   minimum times and failsafe.
 
 Everything can be changed later under *Configure*. Disable any old automations that switch the boiler.
 
@@ -42,6 +47,9 @@ Everything can be changed later under *Configure*. Disable any old automations t
 | `number.<name>_on_threshold` / `_off_threshold` | Hysteresis band in % |
 | `number.<name>_minimum_on_time` / `_minimum_off_time` | Anti short-cycling times |
 | `select.<name>_failsafe_action` | What to do when all valves are offline |
+| `switch.<name>_auto_tune` | Use the learned per-valve thresholds, on delay and adaptive minimum off time (off by default; learning runs anyway) |
+| `button.<name>_reset_auto_tune_learning` | Forget everything learned, e.g. after changing radiators or valves |
+| `sensor.<name>_effective_minimum_off_time` | Minimum off time in effect, including what auto-tune added |
 
 ### Rooms
 
@@ -52,6 +60,7 @@ under the Boiler Demand device and placed in the valve's area:
 | --- | --- |
 | `sensor.<room>_valve_opening` | Opening in % as used by the controller (unknown = offline/ignored). Attributes: `source_entity`, `role` (demand / holding / closed / offline) |
 | `sensor.<room>_room_temperature` | Room temperature from the assigned sensor (only if one is set) |
+| `sensor.<room>_holding_level` | Learned holding level in % (unknown while learning). Attributes: `samples`, `on_threshold` / `off_threshold` for this valve, `stuck_open` |
 
 Home Assistant may put the area in front of these entity ids (e.g. `sensor.kuche_heizung_kuche_valve_opening`).
 
@@ -120,6 +129,58 @@ cards:
 - More than ~3–4 starts per hour in mild weather: lower the boiler's flow temperature first, then
   widen the band.
 
+## Auto-tune
+
+A thermostatic valve that has reached its setpoint does not close completely while the boiler
+runs: it settles at a steady opening that just replaces the heat the room loses – its **holding
+level**. That level differs per radiator (a big radiator holds at 15 %, a small one at 50 %), so one
+threshold for all valves either starts the boiler for rooms that are already warm, or waits too long
+for rooms that are cold.
+
+**Learning** (always running, also with the switch off, so it is ready when you turn it on):
+
+1. Every 30 s each valve's opening is recorded – only while heat really arrives: boiler switch on
+   and, with a flow sensor, the flow pipe at least 30 °C.
+2. If a valve stayed within ±3 % for 30 minutes, between 3 % and 90 % (not closed, not wide open
+   because the room is cold), that average is one sample. At most one sample per 10 minutes.
+3. The holding level is a moving average of the samples (each new one counts 20 %), so it follows
+   the season slowly. It is used after 3 samples and stored across restarts.
+
+**Control with `switch.<name>_auto_tune` on**:
+
+| | Rule | Example: holding 30 % |
+| --- | --- | --- |
+| Off threshold per valve | holding + 3 %, max 60 % | 33 % – valve is back at "warm enough" |
+| On threshold per valve | off + 7 % | 40 % – room is clearly asking for more |
+| Floor | never below the configured on / off thresholds | |
+| On delay | a valve must stay above its on threshold for 3 min before it may start the boiler (it keeps a running boiler on immediately) | filters short spikes after a window was opened |
+| Minimum off time | more than 3 starts within an hour: +5 min (up to 20 min); every start that drops out of the hour: −1 min; an hour without starts: back to the configured value | |
+
+Valves that have not learned yet use the configured thresholds. Roles (*demand / holding / closed*) on
+the card, the ESPHome display and the `rooms` attribute follow the per-valve thresholds.
+
+**Repairs warnings** (independent of the switch):
+
+- *Valve stays fully open* – ≥ 95 % for 4 hours while heat arrives: the valve is stuck, or no heat
+  reaches that radiator (air, closed lock shield). Such a valve keeps the boiler running.
+- *Boiler is not heating* (flow sensor only) – switch on for 30 minutes but the flow pipe is still
+  below 30 °C: boiler off, in summer / hot-water-only mode, or in fault.
+
+Both clear themselves once the condition is gone. With the boiler off, valves open fully while they
+wait for heat – that is normal and not counted.
+
+**Try it on your own history first**: Settings → History → pick the valve sensors → download, then
+
+```
+python tools/simulate.py history.csv
+python tools/simulate.py history.csv --from "2026-10-20 13:00" --on 25 --off 20
+```
+
+It replays the export through the old automations, the configured thresholds and auto-tune (the
+integration's own code) and prints on time, starts and the learned holding levels. Use `--from` /
+`--to` to cut out days without heat. It is open loop – the valves reacted to the boiler that really
+ran – so use it to compare strategies, not as an exact forecast.
+
 ## Hardware (ESPHome boiler relay)
 
 Minimum:
@@ -144,13 +205,14 @@ Optional:
 | --- | --- |
 | 1.8" TFT, ST7735, 128×160, SPI | LVGL UI. Status page: boiler state, Boiler Demand status, max valve opening, average temperature, rooms (count / calling / offline), HA connection / FAILSAFE, time. Room page: one room at a time (temperature, valve bar, role) – the room list comes from HA at runtime, no reflash when rooms change. Menu: Automatik on/off. Package `esphome/boiler-tft-st7735.yaml`, complete node `esphome/boiler-relay-c3-tft.yaml` (wiring in the file) |
 | Rotary encoder with button (KY-040 / EC11), on top of the TFT | Turn to flip Status → rooms, press for the Automatik menu. Package `esphome/boiler-rotary.yaml`, complete node `esphome/boiler-relay-c3-tft-rotary.yaml`. Needs the ESPHome device option *Allow the device to perform Home Assistant actions* |
+| DS18B20 waterproof probe + 4.7 kΩ resistor | Flow pipe (Vorlauf) temperature, shows whether the boiler really delivers heat. DQ → D7 (GPIO20), 4.7 kΩ pull-up DQ → 3V3. Strap it to the flow pipe right after the boiler with thermal paste and insulate it. Package `esphome/boiler-flow-temp.yaml`, included in `boiler-relay-c3.yaml` (remove the line if not fitted) |
 | OLED (SH1106 / SSD1306), touch screen | Local status and manual override, see `esphome/mista-heatcontrol.yaml` |
 
 The ESPHome files are layered packages – pick the node that matches your hardware:
 
 | Node | Layers |
 | --- | --- |
-| `boiler-relay-c3.yaml` | base: relay + watchdog |
+| `boiler-relay-c3.yaml` | base: relay + watchdog + flow temperature (DS18B20) |
 | `boiler-relay-c3-tft.yaml` | base → TFT status screen |
 | `boiler-relay-c3-tft-rotary.yaml` | base → TFT → rotary menu |
 
@@ -193,6 +255,9 @@ Pins as used in the ESPHome files (Seeed XIAO ESP32-C3).
 ```
 
 COM + NC: relay coil off = contact closed = boiler on, so a dead ESP or power cut fails to heating.
+
+Optional flow pipe sensor (DS18B20): VDD → 3V3, GND → GND, DQ → D7 (GPIO20), 4.7 kΩ between DQ and
+3V3 — same as in the diagram below.
 
 > **Check your boiler first: does it heat when the thermostat terminals are *bridged* (closed) or
 > *open*?** Test it before wiring – briefly bridge the terminals (or disconnect the existing thermostat)
@@ -245,6 +310,12 @@ COM + NC: relay coil off = contact closed = boiler on, so a dead ESP or power cu
           │                 │                │ VCC  ◄── 3V3 rail
           │                 │                │ GND  ◄── GND    │
           │                 │                │ COM + NC ───────┼──► Boiler RT terminals
+          │                 │                └─────────────────┘
+          │                 │                   DS18B20 probe (flow pipe)
+          │                 │                ┌─────────────────┐
+          │ D7  (GPIO20) ◄──┼──────┬─────────┤ DQ  (yellow)    │
+          │                 │    4.7 kΩ      │ VDD ◄── 3V3 rail│
+          │                 │      └─► 3V3   │ GND ◄── GND     │
           └─────────────────┘                └─────────────────┘
 ```
 
@@ -255,6 +326,8 @@ COM + NC: relay coil off = contact closed = boiler on, so a dead ESP or power cu
   (VBUS) pin.
 - Relay, TFT (incl. backlight) and encoder all run on the MP1584 3.3 V rail, so the backlight does
   not dim when the relay switches; the XIAO's own 3V3 pin stays unused.
+- DS18B20: the 4.7 kΩ pull-up between DQ and the 3V3 rail is required. GPIO20 is UART0 RX, free
+  because the logger uses the USB serial.
 - GPIO2 (encoder button) and GPIO8 (TFT clock) are strapping pins: fine here, just don't hold the
   button while powering up.
 - Boiler terminals: check the voltage in the boiler manual (24 V or 230 V) and use a relay rated for it.
@@ -289,5 +362,5 @@ pip install pytest pytest-homeassistant-custom-component
 pytest
 ```
 
-`tests/test_logic.py` covers the pure decision logic; `tests/test_integration.py` runs the config flow
-and controller against Home Assistant core. 
+`tests/test_logic.py` and `tests/test_autotune.py` cover the pure decision and auto-tune logic;
+`tests/test_integration.py` runs the config flow and controller against Home Assistant core.

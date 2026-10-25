@@ -73,9 +73,18 @@ def update_demand(
     valid: Sequence[float], demand: bool, on_threshold: float, off_threshold: float
 ) -> bool:
     """Apply hysteresis: on if any valve >= on, off if all <= off, else keep."""
-    if any(p >= on_threshold for p in valid):
+    return update_demand_per_valve(
+        [(p, on_threshold, off_threshold) for p in valid], demand
+    )
+
+
+def update_demand_per_valve(
+    valid: Sequence[tuple[float, float, float]], demand: bool
+) -> bool:
+    """Hysteresis with own thresholds per valve: (position, on, off) tuples."""
+    if any(p >= on for p, on, _ in valid):
         return True
-    if all(p <= off_threshold for p in valid):
+    if all(p <= off for p, _, off in valid):
         return False
     return demand
 
@@ -87,6 +96,7 @@ def decide(
     switch_state_for_s: float,
     offline_for_s: float | None,
     settings: Settings,
+    thresholds: Sequence[tuple[float, float]] | None = None,
 ) -> Decision:
     """Decide demand and the switch action.
 
@@ -95,8 +105,13 @@ def decide(
     switch_on: current boiler switch state, None if unknown/unavailable.
     switch_state_for_s: seconds since the switch last changed state.
     offline_for_s: seconds since all valves went offline, None if any is online.
+    thresholds: (on, off) per valve (auto-tune), default: the ones from settings.
     """
-    valid = [p for p in positions if p is not None]
+    if thresholds is None:
+        thresholds = [(settings.on_threshold, settings.off_threshold)] * len(positions)
+    valid = [
+        (p, on, off) for p, (on, off) in zip(positions, thresholds, strict=True) if p is not None
+    ]
 
     if not valid:
         waiting = offline_for_s is None or offline_for_s < settings.failsafe_after_s
@@ -112,9 +127,7 @@ def decide(
             action = ACTION_ON if demand else ACTION_OFF
         return Decision(demand, action, STATUS_FAILSAFE)
 
-    demand = update_demand(
-        valid, demand, settings.on_threshold, settings.off_threshold
-    )
+    demand = update_demand_per_valve(valid, demand)
 
     if switch_on is None:
         return Decision(demand, None, STATUS_SWITCH_UNAVAILABLE)

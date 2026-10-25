@@ -22,9 +22,12 @@
 #         language: en   # or de
 #
 # Wiring (XIAO ESP32-C3 -> TFT):
-#   D8 (GPIO8)  -> SCK / SCL     D10 (GPIO10) -> SDA / MOSI
-#   D1 (GPIO3)  -> CS            D3 (GPIO5)   -> DC / A0
-#   D6 (GPIO21) -> RES / RST     BL / BLK / LED -> 3V3 (PWM dimming flickers)
+#   D8 (GPIO8)   -> SCK / SCL     
+#   D10 (GPIO10) -> SDA / MOSI 
+#   D1 (GPIO3)   -> CS            
+#   D3 (GPIO5)   -> DC / A0
+#   D6 (GPIO21)  -> RES / RST     
+#   BL / BLK / LED -> 3V3 (PWM dimming flickers)
 #   VCC -> 3V3, GND -> GND
 # Power: feed TFT VCC/BL and the relay module from an MP1584 buck converter set to 3.3 V
 # (common GND with the XIAO). On the XIAO's own 3V3 the backlight dims while the relay is on.
@@ -496,7 +499,7 @@ interval:
 
 lvgl:
   displays: [tft]
-  rotation: 90  # landscape 160x128
+  rotation: 270  # landscape 160x128 180 rotation
   buffer_size: 25%
   bg_color: 0x000000
   text_font: tft_font

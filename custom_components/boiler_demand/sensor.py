@@ -10,7 +10,13 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, PERCENTAGE, UnitOfTemperature
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfTemperature,
+    UnitOfTime,
+)
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import (
     area_registry as ar,
@@ -28,18 +34,19 @@ from .const import DOMAIN
 from .controller import BoilerDemandController
 from .discovery import short_names, valve_name
 from .entity import BoilerDemandEntity
-from .logic import STATUSES, Settings
+from .logic import STATUSES
 
 ROLE_CODES = {"demand": "d", "holding": "h", "closed": "c", "offline": "o"}
 
 
-def valve_role(position: float | None, settings: Settings) -> str:
+def valve_role(position: float | None, thresholds: tuple[float, float]) -> str:
     """demand (can start the boiler), holding (keeps it on), closed, offline."""
+    on_threshold, off_threshold = thresholds
     if position is None:
         return "offline"
-    if position >= settings.on_threshold:
+    if position >= on_threshold:
         return "demand"
-    if position > settings.off_threshold:
+    if position > off_threshold:
         return "holding"
     return "closed"
 
@@ -64,7 +71,7 @@ def rooms_json(hass: HomeAssistant, controller: BoilerDemandController) -> str:
                 "n": name,
                 "t": _float_state(hass, controller.temperatures.get(valve)),
                 "v": None if position is None else round(position),
-                "r": ROLE_CODES[valve_role(position, controller.settings)],
+                "r": ROLE_CODES[valve_role(position, controller.valve_thresholds(valve))],
             }
         )
     return json.dumps(rooms, ensure_ascii=False, separators=(",", ":"))
@@ -83,10 +90,12 @@ async def async_setup_entry(
         StatusSensor(controller, "status"),
         MaxValveOpeningSensor(controller, "max_valve_opening"),
         BoilerStartsTodaySensor(controller, "boiler_starts_today"),
+        MinOffTimeSensor(controller, "effective_min_off"),
     ]
     for valve in controller.valves:
         room = _room_device_info(hass, controller, valve)
         entities.append(ValveSensor(controller, valve, room))
+        entities.append(HoldingLevelSensor(controller, valve, room))
         if temperature := controller.temperatures.get(valve):
             entities.append(RoomTemperatureSensor(controller, valve, temperature, room))
     async_add_entities(entities)
@@ -102,6 +111,10 @@ def _valve_unique_id(entry_id: str, valve: str) -> str:
 
 def _temperature_unique_id(entry_id: str, valve: str) -> str:
     return f"{entry_id}_temperature_{valve}"
+
+
+def _holding_unique_id(entry_id: str, valve: str) -> str:
+    return f"{entry_id}_holding_{valve}"
 
 
 def _room_device_info(
@@ -137,12 +150,20 @@ def _remove_deselected_rooms(
 ) -> None:
     """Drop room entities and devices that are no longer configured."""
     entry_id = entry.entry_id
-    wanted = {_valve_unique_id(entry_id, valve) for valve in controller.valves} | {
+    wanted = {
+        unique_id(entry_id, valve)
+        for valve in controller.valves
+        for unique_id in (_valve_unique_id, _holding_unique_id)
+    } | {
         _temperature_unique_id(entry_id, valve)
         for valve, temperature in controller.temperatures.items()
         if temperature and valve in controller.valves
     }
-    prefixes = (_valve_unique_id(entry_id, ""), _temperature_unique_id(entry_id, ""))
+    prefixes = (
+        _valve_unique_id(entry_id, ""),
+        _temperature_unique_id(entry_id, ""),
+        _holding_unique_id(entry_id, ""),
+    )
     ent_reg = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(ent_reg, entry_id):
         if entity.unique_id.startswith(prefixes) and entity.unique_id not in wanted:
@@ -175,6 +196,7 @@ class StatusSensor(BoilerDemandEntity, SensorEntity):
             "remaining_minutes": None if remaining is None else round(remaining / 60, 1),
             # Lets the dashboard card show/link the relay without extra config.
             "boiler_switch": self.controller.switch_entity,
+            "flow_temperature": self.controller.flow_temperature,
             # Dynamic room list for ESPHome displays (one text_sensor attribute).
             "rooms": rooms_json(self.hass, self.controller),
         }
@@ -215,8 +237,53 @@ class ValveSensor(BoilerDemandEntity, SensorEntity):
         position = self.controller.positions.get(self._valve)
         return {
             "source_entity": self._valve,
-            "role": valve_role(position, self.controller.settings),
+            "role": valve_role(position, self.controller.valve_thresholds(self._valve)),
         }
+
+
+class HoldingLevelSensor(BoilerDemandEntity, SensorEntity):
+    """Learned opening at which this valve keeps its room warm (auto-tune)."""
+
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 0
+
+    def __init__(
+        self, controller: BoilerDemandController, valve: str, room: DeviceInfo
+    ) -> None:
+        super().__init__(controller, "holding_level")
+        self._valve = valve
+        self._attr_unique_id = _holding_unique_id(controller.entry.entry_id, valve)
+        self._attr_device_info = room
+
+    @property
+    def native_value(self) -> float | None:
+        holding = self.controller.tuner.holding(self._valve)
+        return None if holding is None else round(holding, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        on, off = self.controller.tuner.thresholds(self._valve)
+        learning = self.controller.tuner.valves.get(self._valve)
+        return {
+            "samples": learning.samples if learning else 0,
+            "on_threshold": round(on),
+            "off_threshold": round(off),
+            "stuck_open": self._valve in self.controller.stuck_valves,
+        }
+
+
+class MinOffTimeSensor(BoilerDemandEntity, SensorEntity):
+    """Minimum off time in effect; auto-tune extends it when the boiler starts often."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 0
+
+    @property
+    def native_value(self) -> float:
+        return round(self.controller.min_off_s / 60, 1)
 
 
 class RoomTemperatureSensor(BoilerDemandEntity, SensorEntity):

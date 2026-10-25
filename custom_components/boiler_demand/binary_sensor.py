@@ -36,9 +36,12 @@ class HeatDemandBinarySensor(BoilerDemandEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         positions = self.controller.positions
-        off_threshold = self.controller.settings.off_threshold
         return {
             "valves": dict(positions),
-            "open_valves": [v for v, p in positions.items() if p is not None and p > off_threshold],
+            "open_valves": [
+                v
+                for v, p in positions.items()
+                if p is not None and p > self.controller.valve_thresholds(v)[1]
+            ],
             "offline_valves": [v for v, p in positions.items() if p is None],
         }

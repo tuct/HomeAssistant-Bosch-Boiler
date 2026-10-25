@@ -23,6 +23,12 @@
       },
       "room_temperature": {
         "default": "mdi:home-thermometer-outline"
+      },
+      "holding_level": {
+        "default": "mdi:valve"
+      },
+      "effective_min_off": {
+        "default": "mdi:timer-pause-outline"
       }
     },
     "number": {
@@ -45,6 +51,14 @@
         "state": {
           "off": "mdi:robot-off"
         }
+      },
+      "auto_tune": {
+        "default": "mdi:tune-variant"
+      }
+    },
+    "button": {
+      "reset_learning": {
+        "default": "mdi:restore"
       }
     },
     "select": {

@@ -34,7 +34,8 @@
           "min_on_minutes": "Mindestlaufzeit",
           "min_off_minutes": "Mindestpause",
           "failsafe_after_minutes": "Notbetrieb nach",
-          "failsafe_mode": "Notbetrieb-Aktion"
+          "failsafe_mode": "Notbetrieb-Aktion",
+          "flow_sensor": "Vorlauf-Temperatursensor"
         },
         "data_description": {
           "on_threshold": "Die Therme schaltet ein, sobald ein Ventil mindestens so weit geöffnet ist.",
@@ -42,7 +43,8 @@
           "min_on_minutes": "So lange bleibt die Therme mindestens an, bevor sie ausschalten darf.",
           "min_off_minutes": "So lange bleibt die Therme mindestens aus, bevor sie wieder einschalten darf.",
           "failsafe_after_minutes": "So lange müssen alle Ventile offline sein, bevor der Notbetrieb greift.",
-          "failsafe_mode": "Was mit der Therme passiert, wenn kein Ventil Daten liefert."
+          "failsafe_mode": "Was mit der Therme passiert, wenn kein Ventil Daten liefert.",
+          "flow_sensor": "Optional. Temperatursensor am Vorlaufrohr der Therme (z. B. DS18B20 am Relais-Knoten). Auto-Tuning lernt dann nur, solange wirklich Wärme ankommt, und Reparaturen warnt, wenn die Therme eingeschaltet ist, aber nicht heizt."
         }
       }
     },
@@ -67,7 +69,8 @@
           "min_on_minutes": "Mindestlaufzeit",
           "min_off_minutes": "Mindestpause",
           "failsafe_after_minutes": "Notbetrieb nach",
-          "failsafe_mode": "Notbetrieb-Aktion"
+          "failsafe_mode": "Notbetrieb-Aktion",
+          "flow_sensor": "Vorlauf-Temperatursensor"
         },
         "data_description": {
           "switch_entity": "Relais am Raumthermostat-Kontakt der Therme (switch oder input_boolean).",
@@ -77,7 +80,8 @@
           "min_on_minutes": "So lange bleibt die Therme mindestens an, bevor sie ausschalten darf.",
           "min_off_minutes": "So lange bleibt die Therme mindestens aus, bevor sie wieder einschalten darf.",
           "failsafe_after_minutes": "So lange müssen alle Ventile offline sein, bevor der Notbetrieb greift.",
-          "failsafe_mode": "Was mit der Therme passiert, wenn kein Ventil Daten liefert."
+          "failsafe_mode": "Was mit der Therme passiert, wenn kein Ventil Daten liefert.",
+          "flow_sensor": "Optional. Temperatursensor am Vorlaufrohr der Therme (z. B. DS18B20 am Relais-Knoten). Auto-Tuning lernt dann nur, solange wirklich Wärme ankommt, und Reparaturen warnt, wenn die Therme eingeschaltet ist, aber nicht heizt."
         }
       },
       "rooms": {
@@ -130,6 +134,26 @@
       "boiler_starts_today": {
         "name": "Brennerstarts heute"
       },
+      "effective_min_off": {
+        "name": "Wirksame Mindestpause"
+      },
+      "holding_level": {
+        "name": "Halteöffnung",
+        "state_attributes": {
+          "samples": {
+            "name": "Messungen"
+          },
+          "on_threshold": {
+            "name": "Einschaltschwelle"
+          },
+          "off_threshold": {
+            "name": "Ausschaltschwelle"
+          },
+          "stuck_open": {
+            "name": "Hängt offen"
+          }
+        }
+      },
       "room_temperature": {
         "name": "Raumtemperatur",
         "state_attributes": {
@@ -173,6 +197,14 @@
     "switch": {
       "automatic_control": {
         "name": "Automatik"
+      },
+      "auto_tune": {
+        "name": "Auto-Tuning"
+      }
+    },
+    "button": {
+      "reset_learning": {
+        "name": "Auto-Tuning zurücksetzen"
       }
     },
     "select": {
@@ -189,6 +221,16 @@
   "exceptions": {
     "off_above_on": {
       "message": "Die Ausschaltschwelle ({off} %) muss kleiner als die Einschaltschwelle ({on} %) sein."
+    }
+  },
+  "issues": {
+    "valve_stuck_open": {
+      "title": "{valve}: Ventil bleibt voll offen",
+      "description": "Das Ventil `{entity_id}` ist seit {hours} Stunden zu 95 % oder mehr geöffnet, obwohl die Therme heizt. Entweder hängt das Ventil, oder am Heizkörper kommt keine Wärme an (Luft im Heizkörper, Rücklaufverschraubung zu, Therme heizt nicht wirklich). Solange es offen bleibt, hält es die Therme an.\n\nDiese Warnung verschwindet von selbst, sobald das Ventil unter 95 % schließt."
+    },
+    "no_heat": {
+      "title": "{name}: Therme heizt nicht",
+      "description": "Der Thermenschalter ist seit {minutes} Minuten an, aber der Vorlauf (`{flow_sensor}`) liegt noch unter {temperature} °C. Prüfen, ob die Therme eingeschaltet ist, nicht im Sommer-/Warmwasserbetrieb steht und keine Störung hat.\n\nDiese Warnung verschwindet von selbst, sobald der Vorlauf warm ist oder der Schalter ausschaltet."
     }
   }
 }

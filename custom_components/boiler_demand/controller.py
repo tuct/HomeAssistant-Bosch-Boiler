@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime
 import logging
 from typing import Any
@@ -11,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_state_change_event,
@@ -18,12 +20,15 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.start import async_at_started
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .autotune import STUCK_AFTER_S, AutoTuner
 from .const import (
     COMMAND_DEBOUNCE_S,
     CONF_FAILSAFE_AFTER,
     CONF_FAILSAFE_MODE,
+    CONF_FLOW_SENSOR,
     CONF_MIN_OFF,
     CONF_MIN_ON,
     CONF_OFF_THRESHOLD,
@@ -32,12 +37,24 @@ from .const import (
     CONF_TEMPERATURES,
     CONF_VALVES,
     DEFAULTS,
+    DOMAIN,
     EVAL_INTERVAL,
+    FLOW_HOT_C,
+    NO_HEAT_AFTER,
     signal_update,
 )
+from .discovery import valve_name
 from .logic import STATUS_DISABLED, STATUS_IDLE, Settings, decide, parse_position
 
 _LOGGER = logging.getLogger(__name__)
+
+STORAGE_VERSION = 1
+SAVE_DELAY_S = 30
+
+
+def storage_key(entry_id: str) -> str:
+    """Store with the learned auto-tune data of one entry."""
+    return f"{DOMAIN}.{entry_id}"
 
 
 def build_settings(options: Mapping[str, Any]) -> Settings:
@@ -64,6 +81,7 @@ class BoilerDemandController:
         self.temperatures: dict[str, str | None] = dict(
             self.options.get(CONF_TEMPERATURES) or {}
         )
+        self.flow_sensor: str | None = self.options.get(CONF_FLOW_SENSOR) or None
         self.settings = build_settings(self.options)
 
         self.device_id: str | None = None  # main device registry id, set on setup
@@ -73,6 +91,16 @@ class BoilerDemandController:
         self.remaining_s: float | None = None
         self.positions: dict[str, float | None] = {}
         self.starts_today = 0
+
+        self.auto_tune = False
+        self.tuner = AutoTuner(
+            self.settings.on_threshold, self.settings.off_threshold, self.settings.min_off_s
+        )
+        self.stuck_valves: set[str] = set()
+        self.no_heat = False
+        self._store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, storage_key(entry.entry_id)
+        )
 
         self._offline_since: datetime | None = None
         self._last_command: tuple[str, datetime] | None = None
@@ -89,8 +117,40 @@ class BoilerDemandController:
         """Positions of valves with usable data."""
         return [p for p in self.positions.values() if p is not None]
 
+    def valve_thresholds(self, valve: str) -> tuple[float, float]:
+        """(on, off) that currently apply to one valve."""
+        if self.auto_tune:
+            return self.tuner.thresholds(valve)
+        return self.settings.on_threshold, self.settings.off_threshold
+
+    @property
+    def flow_temperature(self) -> float | None:
+        """Flow pipe temperature in °C, None without a (working) flow sensor."""
+        if not self.flow_sensor or (state := self.hass.states.get(self.flow_sensor)) is None:
+            return None
+        try:
+            return float(state.state)
+        except ValueError:
+            return None
+
+    def _heat_delivered(self, switch_on: bool) -> bool:
+        """Boiler switch on and, if a flow sensor reports, the flow pipe hot."""
+        flow = self.flow_temperature
+        return switch_on and (flow is None or flow >= FLOW_HOT_C)
+
+    @property
+    def min_off_s(self) -> float:
+        """Minimum off time in effect (auto-tune may extend it)."""
+        if self.auto_tune:
+            return self.tuner.min_off_s(dt_util.utcnow().timestamp())
+        return self.settings.min_off_s
+
     async def async_start(self) -> None:
         """Start listening and evaluating."""
+        stored = await self._store.async_load() or {}
+        stored_valves = stored.get("valves") or {}
+        self.tuner.load({"valves": {v: d for v, d in stored_valves.items() if v in self.valves}})
+
         switch_state = self.hass.states.get(self.switch_entity)
         # Seed hysteresis from the relay so a restart does not flip the boiler.
         self.demand = switch_state is not None and switch_state.state == STATE_ON
@@ -117,6 +177,11 @@ class BoilerDemandController:
         """Stop all listeners."""
         while self._unsubs:
             self._unsubs.pop()()
+        for valve in self.stuck_valves:
+            ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id(valve))
+        self.stuck_valves = set()
+        ir.async_delete_issue(self.hass, DOMAIN, self._no_heat_issue_id)
+        self.no_heat = False
 
     def needs_reload(self, options: Mapping[str, Any]) -> bool:
         """Whether new options change the watched entities."""
@@ -124,17 +189,32 @@ class BoilerDemandController:
             options.get(CONF_SWITCH) != self.switch_entity
             or list(options.get(CONF_VALVES, [])) != self.valves
             or dict(options.get(CONF_TEMPERATURES) or {}) != self.temperatures
+            or (options.get(CONF_FLOW_SENSOR) or None) != self.flow_sensor
         )
 
     async def async_apply_options(self, options: Mapping[str, Any]) -> None:
         """Apply tunable options without a reload."""
         self.options = {**DEFAULTS, **options}
         self.settings = build_settings(self.options)
+        self.tuner.set_base(
+            self.settings.on_threshold, self.settings.off_threshold, self.settings.min_off_s
+        )
         await self.async_evaluate()
 
     async def async_set_enabled(self, enabled: bool) -> None:
         """Enable or disable automatic switching."""
         self.enabled = enabled
+        await self.async_evaluate()
+
+    async def async_set_auto_tune(self, enabled: bool) -> None:
+        """Use learned per-valve thresholds, on delay and adaptive minimum off time."""
+        self.auto_tune = enabled
+        await self.async_evaluate()
+
+    async def async_reset_learning(self) -> None:
+        """Forget all learned holding levels."""
+        self.tuner.reset()
+        await self._store.async_save(self.tuner.as_dict())
         await self.async_evaluate()
 
     async def _on_started(self, _hass: HomeAssistant) -> None:
@@ -152,11 +232,83 @@ class BoilerDemandController:
                 and new.state == STATE_ON
             ):
                 self.starts_today += 1
+                self.tuner.record_start(new.last_changed.timestamp())
                 async_dispatcher_send(self.hass, self.signal)
         self.entry.async_create_task(self.hass, self.async_evaluate())
 
     async def _on_interval(self, _now: datetime) -> None:
         await self.async_evaluate()
+        # Learning runs on the fixed interval (also with auto-tune off, so it is ready).
+        # It only counts while heat really arrives: switch on and, if known, flow pipe hot.
+        now = dt_util.utcnow()
+        switch_state = self.hass.states.get(self.switch_entity)
+        switch_on = switch_state is not None and switch_state.state == STATE_ON
+        heating = self._heat_delivered(switch_on)
+        changed = self.tuner.observe(now.timestamp(), self.positions, heating)
+        if changed:
+            self._store.async_delay_save(self.tuner.as_dict, SAVE_DELAY_S)
+        stuck = self.tuner.stuck_valves(now.timestamp(), self.positions, heating)
+        changed |= stuck != self.stuck_valves
+        self._update_stuck_issues(stuck)
+        no_heat = (
+            switch_on
+            and not heating
+            and now - switch_state.last_changed >= NO_HEAT_AFTER
+        )
+        changed |= no_heat != self.no_heat
+        self._update_no_heat_issue(no_heat)
+        if changed:
+            async_dispatcher_send(self.hass, self.signal)
+
+    @property
+    def _no_heat_issue_id(self) -> str:
+        return f"no_heat_{self.entry.entry_id}"
+
+    @callback
+    def _update_no_heat_issue(self, no_heat: bool) -> None:
+        """Repairs issue while the switch is on but the flow pipe stays cold."""
+        if no_heat and not self.no_heat:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                self._no_heat_issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="no_heat",
+                translation_placeholders={
+                    "name": self.entry.title,
+                    "flow_sensor": str(self.flow_sensor),
+                    "minutes": f"{NO_HEAT_AFTER.total_seconds() / 60:g}",
+                    "temperature": f"{FLOW_HOT_C:g}",
+                },
+            )
+        elif self.no_heat and not no_heat:
+            ir.async_delete_issue(self.hass, DOMAIN, self._no_heat_issue_id)
+        self.no_heat = no_heat
+
+    def _stuck_issue_id(self, valve: str) -> str:
+        return f"valve_stuck_open_{self.entry.entry_id}_{valve}"
+
+    @callback
+    def _update_stuck_issues(self, stuck: set[str]) -> None:
+        """Repairs issue per valve that stays fully open although the boiler heats."""
+        for valve in stuck - self.stuck_valves:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                self._stuck_issue_id(valve),
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="valve_stuck_open",
+                translation_placeholders={
+                    "valve": valve_name(self.hass, valve),
+                    "entity_id": valve,
+                    "hours": f"{STUCK_AFTER_S / 3600:g}",
+                },
+            )
+        for valve in self.stuck_valves - stuck:
+            ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id(valve))
+        self.stuck_valves = stuck
 
     @callback
     def _on_midnight(self, _now: datetime) -> None:
@@ -185,13 +337,19 @@ class BoilerDemandController:
             switch_on = switch_state.state == STATE_ON
             switch_for_s = (now - switch_state.last_changed).total_seconds()
 
+        settings, thresholds = self.settings, None
+        if self.auto_tune:
+            thresholds = self.tuner.control_thresholds(now.timestamp(), self.positions)
+            settings = replace(settings, min_off_s=self.tuner.min_off_s(now.timestamp()))
+
         decision = decide(
             list(self.positions.values()),
             self.demand,
             switch_on,
             switch_for_s,
             offline_for_s,
-            self.settings,
+            settings,
+            thresholds,
         )
         self.demand = decision.demand
 

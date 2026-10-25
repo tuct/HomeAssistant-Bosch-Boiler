@@ -90,6 +90,20 @@ def find_room_temperature(hass: HomeAssistant, valve: str) -> str | None:
     return in_area[0] if len(in_area) == 1 else None
 
 
+def find_flow_sensor(hass: HomeAssistant, switch: str) -> str | None:
+    """A temperature sensor on the boiler switch's device (e.g. DS18B20 on the relay node)."""
+    registry = er.async_get(hass)
+    entity = registry.async_get(switch)
+    if entity is None or entity.device_id is None:
+        return None
+    for candidate in er.async_entries_for_device(registry, entity.device_id):
+        if candidate.domain == "sensor" and (
+            candidate.device_class or candidate.original_device_class
+        ) == SensorDeviceClass.TEMPERATURE:
+            return candidate.entity_id
+    return None
+
+
 def valve_name(hass: HomeAssistant, valve: str) -> str:
     """Room name for a valve: its device name (e.g. the TRV), else the entity name."""
     entity = er.async_get(hass).async_get(valve)
