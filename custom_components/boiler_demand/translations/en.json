@@ -205,6 +205,9 @@
     "button": {
       "reset_learning": {
         "name": "Reset auto-tune learning"
+      },
+      "learn_from_history": {
+        "name": "Learn auto-tune from history (7 days)"
       }
     },
     "select": {

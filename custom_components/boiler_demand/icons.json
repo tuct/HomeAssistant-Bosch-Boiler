@@ -59,6 +59,9 @@
     "button": {
       "reset_learning": {
         "default": "mdi:restore"
+      },
+      "learn_from_history": {
+        "default": "mdi:history"
       }
     },
     "select": {

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import partial
 import logging
 from typing import Any
 
@@ -23,7 +24,7 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .autotune import STUCK_AFTER_S, AutoTuner
+from .autotune import HISTORY_DAYS, STUCK_AFTER_S, AutoTuner, replay
 from .const import (
     COMMAND_DEBOUNCE_S,
     CONF_FAILSAFE_AFTER,
@@ -55,6 +56,32 @@ SAVE_DELAY_S = 30
 def storage_key(entry_id: str) -> str:
     """Store with the learned auto-tune data of one entry."""
     return f"{DOMAIN}.{entry_id}"
+
+
+def heating_series(
+    switch: list[tuple[float, bool]], flow: list[tuple[float, float | None]]
+) -> list[tuple[float, bool]]:
+    """(time, heat delivered) changes from switch and flow history, like _heat_delivered."""
+    events = sorted(
+        [(t, 0, on) for t, on in switch] + [(t, 1, temp) for t, temp in flow],
+        key=lambda event: event[:2],
+    )
+    switch_on, temperature = False, None
+    out = []
+    for t, kind, value in events:
+        if kind == 0:
+            switch_on = value
+        else:
+            temperature = value
+        out.append((t, switch_on and (temperature is None or temperature >= FLOW_HOT_C)))
+    return out
+
+
+def _number(state: str) -> float | None:
+    try:
+        return float(state)
+    except ValueError:
+        return None
 
 
 def build_settings(options: Mapping[str, Any]) -> Settings:
@@ -213,13 +240,73 @@ class BoilerDemandController:
 
     async def async_reset_learning(self) -> None:
         """Forget all learned holding levels."""
-        self.tuner.reset()
+        self.tuner.reset(dt_util.utcnow().timestamp())
+        await self._store.async_save(self.tuner.as_dict())
+        await self.async_evaluate()
+
+    async def async_learn_from_history(self, retrain: bool = False) -> None:
+        """Learn holding levels from the recorder's last HISTORY_DAYS days.
+
+        Without retrain only valves that have not learned yet catch up, from history
+        after the last reset. With retrain all valves re-learn from history only.
+        """
+        if "recorder" not in self.hass.config.components:
+            return
+        from homeassistant.components.recorder import get_instance, history
+
+        valves = [v for v in self.valves if retrain or self.tuner.holding(v) is None]
+        if not valves:
+            return
+        end = dt_util.utcnow()
+        start = end - timedelta(days=HISTORY_DAYS)
+        if not retrain and self.tuner.since is not None:
+            start = max(start, dt_util.utc_from_timestamp(self.tuner.since))
+        if start >= end:
+            return
+        entity_ids = [*valves, self.switch_entity, *filter(None, [self.flow_sensor])]
+        states = await get_instance(self.hass).async_add_executor_job(
+            partial(
+                history.get_significant_states,
+                self.hass,
+                start,
+                end,
+                entity_ids,
+                include_start_time_state=True,
+                no_attributes=True,
+            )
+        )
+
+        def changes(entity_id: str, parse):
+            return [(s.last_changed.timestamp(), parse(s.state)) for s in states.get(entity_id, [])]
+
+        positions = {valve: changes(valve, parse_position) for valve in valves}
+        heating = heating_series(
+            changes(self.switch_entity, lambda state: state == STATE_ON),
+            changes(self.flow_sensor, _number) if self.flow_sensor else [],
+        )
+        fresh = AutoTuner(
+            self.settings.on_threshold, self.settings.off_threshold, self.settings.min_off_s
+        )
+        await self.hass.async_add_executor_job(
+            replay,
+            fresh,
+            start.timestamp(),
+            end.timestamp(),
+            EVAL_INTERVAL.total_seconds(),
+            positions,
+            heating,
+        )
+        taken = self.tuner.adopt(fresh, replace=retrain)
+        _LOGGER.debug("Learned from %s of history: %s", end - start, taken)
         await self._store.async_save(self.tuner.as_dict())
         await self.async_evaluate()
 
     async def _on_started(self, _hass: HomeAssistant) -> None:
         self._started = True
         await self.async_evaluate()
+        self.entry.async_create_background_task(
+            self.hass, self.async_learn_from_history(), f"{DOMAIN} learn from history"
+        )
 
     @callback
     def _on_state_change(self, event: Event[EventStateChangedData]) -> None:

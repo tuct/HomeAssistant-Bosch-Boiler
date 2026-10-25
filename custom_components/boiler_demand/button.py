@@ -1,4 +1,4 @@
-"""Reset auto-tune learning."""
+"""Reset auto-tune learning, or re-learn it from history."""
 
 from __future__ import annotations
 
@@ -16,8 +16,14 @@ async def async_setup_entry(
     entry: BoilerDemandConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the reset button."""
-    async_add_entities([ResetLearningButton(entry.runtime_data, "reset_learning")])
+    """Set up the learning buttons."""
+    controller = entry.runtime_data
+    async_add_entities(
+        [
+            ResetLearningButton(controller, "reset_learning"),
+            LearnFromHistoryButton(controller, "learn_from_history"),
+        ]
+    )
 
 
 class ResetLearningButton(BoilerDemandEntity, ButtonEntity):
@@ -27,3 +33,12 @@ class ResetLearningButton(BoilerDemandEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.controller.async_reset_learning()
+
+
+class LearnFromHistoryButton(BoilerDemandEntity, ButtonEntity):
+    """Re-learn all holding levels from the recorder's last days."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+
+    async def async_press(self) -> None:
+        await self.controller.async_learn_from_history(retrain=True)

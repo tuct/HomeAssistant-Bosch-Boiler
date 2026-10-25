@@ -437,7 +437,7 @@ async def test_learning_is_stored_and_reset(setup_hass: HomeAssistant, hass_stor
     )
     await hass.async_block_till_done()
     assert hass.states.get(holding).state == "unknown"
-    assert hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"] == {"valves": {}}
+    assert hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]["valves"] == {}
 
     # Removing the entry deletes the stored data.
     assert await hass.config_entries.async_remove(entry.entry_id)

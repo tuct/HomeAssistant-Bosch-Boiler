@@ -205,6 +205,9 @@
     "button": {
       "reset_learning": {
         "name": "Auto-Tuning zurücksetzen"
+      },
+      "learn_from_history": {
+        "name": "Auto-Tuning aus Verlauf lernen (7 Tage)"
       }
     },
     "select": {

@@ -49,6 +49,7 @@ Everything can be changed later under *Configure*. Disable any old automations t
 | `select.<name>_failsafe_action` | What to do when all valves are offline |
 | `switch.<name>_auto_tune` | Use the learned per-valve thresholds, on delay and adaptive minimum off time (off by default; learning runs anyway) |
 | `button.<name>_reset_auto_tune_learning` | Forget everything learned, e.g. after changing radiators or valves |
+| `button.<name>_learn_auto_tune_from_history_7_days` | Re-learn all valves from the recorder's last 7 days |
 | `sensor.<name>_effective_minimum_off_time` | Minimum off time in effect, including what auto-tune added |
 
 ### Rooms
@@ -168,6 +169,10 @@ for rooms that are cold.
    because the room is cold), that average is one sample. At most one sample per 10 minutes.
 3. The holding level is a moving average of the samples (each new one counts 20 %), so it follows
    the season slowly. It is used after 3 samples and stored across restarts.
+4. **From history**: when Home Assistant starts, valves that have not learned yet replay the
+   recorder's last 7 days through the same rules (only history after the last reset).
+   `button.<name>_learn_auto_tune_from_history_7_days` re-learns all valves from the last 7 days
+   and replaces what was learned before; `button.<name>_reset_auto_tune_learning` forgets everything.
 
 **Control with `switch.<name>_auto_tune` on**:
 

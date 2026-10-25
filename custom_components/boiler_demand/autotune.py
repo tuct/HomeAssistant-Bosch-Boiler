@@ -14,13 +14,15 @@ The tuner:
   starts within an hour: +5 min, up to 20 min; it shrinks again as starts age out),
 - flags valves that stay (almost) fully open for hours although the boiler heats.
 
+Valves that have not learned yet can catch up from recorded history (replay + adopt).
+
 All times are POSIX timestamps in seconds.
 """
 
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -51,6 +53,9 @@ MIN_OFF_MAX_S = 20 * 60
 STUCK_OPEN_PCT = 95.0
 STUCK_AFTER_S = 4 * 60 * 60
 
+# History replay: how far back the recorder is read for valves that have not learned yet.
+HISTORY_DAYS = 7
+
 
 @dataclass
 class ValveLearning:
@@ -74,6 +79,7 @@ class AutoTuner:
         self.valves: dict[str, ValveLearning] = {}
         self.starts: deque[float] = deque()
         self.extra_min_off_s = 0.0
+        self.since: float | None = None  # last reset: older history is not learned from
 
     def set_base(self, base_on: float, base_off: float, base_min_off_s: float) -> None:
         """Configured thresholds/min off time, the floor for everything learned."""
@@ -154,6 +160,22 @@ class AutoTuner:
             result.append((on, off))
         return result
 
+    def adopt(self, other: AutoTuner, replace: bool = False) -> list[str]:
+        """Take holding levels from other (a history replay) where it learned more.
+
+        replace: forget everything learned so far first (re-train from history).
+        """
+        if replace:
+            self.valves.clear()
+            self.since = None
+        taken = []
+        for valve, learned in other.valves.items():
+            mine = self._valve(valve)
+            if learned.holding is not None and learned.samples > mine.samples:
+                mine.holding, mine.samples = learned.holding, learned.samples
+                taken.append(valve)
+        return taken
+
     # ------------------------------------------------------------------ min off time
 
     def record_start(self, now: float) -> None:
@@ -200,24 +222,30 @@ class AutoTuner:
 
     # ------------------------------------------------------------------ persistence
 
-    def reset(self) -> None:
-        """Forget everything learned."""
+    def reset(self, now: float | None = None) -> None:
+        """Forget everything learned; history before now is not learned from again."""
         self.valves.clear()
         self.starts.clear()
         self.extra_min_off_s = 0.0
+        self.since = now
 
     def as_dict(self) -> dict[str, Any]:
         """Learned holding levels for storage."""
-        return {
+        data: dict[str, Any] = {
             "valves": {
                 valve: {"holding": learning.holding, "samples": learning.samples}
                 for valve, learning in self.valves.items()
                 if learning.holding is not None
             }
         }
+        if self.since is not None:
+            data["since"] = self.since
+        return data
 
     def load(self, data: Mapping[str, Any] | None) -> None:
         """Restore holding levels saved with as_dict."""
+        since = (data or {}).get("since")
+        self.since = float(since) if isinstance(since, (int, float)) else None
         for valve, item in ((data or {}).get("valves") or {}).items():
             try:
                 holding, samples = float(item["holding"]), int(item["samples"])
@@ -225,3 +253,34 @@ class AutoTuner:
                 continue
             learning = self._valve(valve)
             learning.holding, learning.samples = holding, samples
+
+
+def replay(
+    tuner: AutoTuner,
+    start: float,
+    end: float,
+    step_s: float,
+    positions: Mapping[str, Sequence[tuple[float, float | None]]],
+    heating: Sequence[tuple[float, bool]],
+) -> None:
+    """Feed recorded history through tuner.observe, one sample every step_s.
+
+    positions: per valve (time, opening) changes; heating: (time, heat delivered)
+    changes. Each holds its last value until the next change; before the first
+    change a valve has no data and the boiler counts as off.
+    """
+    index = dict.fromkeys(positions, -1)
+    h = -1
+    now = start
+    while now <= end:
+        current: dict[str, float | None] = {}
+        for valve, points in positions.items():
+            i = index[valve]
+            while i + 1 < len(points) and points[i + 1][0] <= now:
+                i += 1
+            index[valve] = i
+            current[valve] = points[i][1] if i >= 0 else None
+        while h + 1 < len(heating) and heating[h + 1][0] <= now:
+            h += 1
+        tuner.observe(now, current, h >= 0 and heating[h][1])
+        now += step_s

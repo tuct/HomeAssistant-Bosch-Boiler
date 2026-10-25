@@ -152,5 +152,42 @@ def test_store_roundtrip_and_reset():
     restored.load(data)
     assert restored.thresholds(V) == t.thresholds(V)
     restored.load({"valves": {"bad": {"holding": "x"}}})  # ignored
-    t.reset()
-    assert t.as_dict() == {"valves": {}} and t.holding(V) is None
+    t.reset(now=100 * MIN)
+    assert t.as_dict() == {"valves": {}, "since": 100 * MIN} and t.holding(V) is None
+    restored.load(t.as_dict())
+    assert restored.since == 100 * MIN
+
+
+# --- history replay -------------------------------------------------------
+
+def test_replay_learns_from_recorded_changes():
+    t = tuner()
+    hour = 60 * MIN
+    # Valve closed, then holds at 25 % while the boiler heats for two hours.
+    positions = {V: [(0, 0.0), (hour, 25.0), (3 * hour, 0.0)], "sensor.other": [(0, None)]}
+    heating = [(0, False), (hour - 10 * MIN, True), (3 * hour, False)]
+    autotune.replay(t, 0, 4 * hour, STEP, positions, heating)
+    assert t.holding(V) == 25.0
+    assert t.valves[V].samples >= autotune.MIN_SAMPLES
+    assert t.holding("sensor.other") is None
+
+
+def test_replay_needs_heat():
+    t = tuner()
+    autotune.replay(t, 0, 4 * 60 * MIN, STEP, {V: [(0, 25.0)]}, [(0, False)])
+    autotune.replay(t, 0, 4 * 60 * MIN, STEP, {V: [(0, 25.0)]}, [])  # no switch history
+    assert t.holding(V) is None
+
+
+def test_adopt_keeps_better_learning_or_replaces():
+    live = tuner()
+    live.load({"valves": {V: {"holding": 30, "samples": 9}, "sensor.b": {"holding": 50, "samples": 1}}})
+    live.since = 5.0
+    replayed = tuner()
+    replayed.load({"valves": {V: {"holding": 20, "samples": 4}, "sensor.b": {"holding": 40, "samples": 6}}})
+    assert live.adopt(replayed) == ["sensor.b"]
+    assert live.holding(V) == 30 and live.holding("sensor.b") == 40 and live.since == 5.0
+
+    empty = tuner()
+    assert live.adopt(empty, replace=True) == []
+    assert live.holding(V) is None and live.since is None
