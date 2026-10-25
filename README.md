@@ -182,6 +182,7 @@ for rooms that are cold.
 | On threshold per valve | off + 7 % | 40 % – room is clearly asking for more |
 | Floor | never below the configured on / off thresholds | |
 | On delay | a valve must stay above its on threshold for 3 min before it may start the boiler (it keeps a running boiler on immediately) | filters short spikes after a window was opened |
+| Early start | a valve that climbed 8 % within 10 min, over at least 3 min, starts the boiler right away once it is above the configured off threshold | a TRV ramping up in the morning at 19 % starts the boiler then, not at 40 % |
 | Minimum off time | more than 3 starts within an hour: +5 min (up to 20 min); every start that drops out of the hour: −1 min; an hour without starts: back to the configured value | |
 
 Valves that have not learned yet use the configured thresholds. Roles (*demand / holding / closed*) on

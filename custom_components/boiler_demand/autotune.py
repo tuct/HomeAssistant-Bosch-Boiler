@@ -10,6 +10,8 @@ The tuner:
 - learns each valve's holding level while the boiler is on and the valve is steady,
 - derives per-valve thresholds from it (off just above the holding level, on clearly above),
 - only lets a valve start the boiler once it stayed above its on threshold for a while,
+- starts early for a valve that keeps climbing fast (a TRV ramping up, e.g. after a
+  morning setpoint change), from the configured off threshold on,
 - stretches the minimum off time when the boiler starts too often (more than 3
   starts within an hour: +5 min, up to 20 min; it shrinks again as starts age out),
 - flags valves that stay (almost) fully open for hours although the boiler heats.
@@ -42,6 +44,11 @@ MAX_OFF_PCT = 60.0
 
 ON_DELAY_S = 3 * 60
 
+# Early start: a valve that climbed RISE_PCT within RISE_WINDOW_S, over at least
+# ON_DELAY_S (a ramp, not a jump), may start the boiler from the configured off threshold.
+RISE_PCT = 8.0
+RISE_WINDOW_S = 10 * 60
+
 # Adaptive minimum off time.
 STARTS_WINDOW_S = 60 * 60
 MAX_STARTS_PER_WINDOW = 3
@@ -66,6 +73,7 @@ class ValveLearning:
     window: deque[tuple[float, float]] = field(default_factory=deque)
     last_sample: float | None = None
     above_since: float | None = None
+    recent: deque[tuple[float, float]] = field(default_factory=deque)
     open_since: float | None = None
 
 
@@ -80,6 +88,7 @@ class AutoTuner:
         self.starts: deque[float] = deque()
         self.extra_min_off_s = 0.0
         self.since: float | None = None  # last reset: older history is not learned from
+        self.rising: set[str] = set()  # valves climbing fast: may start the boiler now
 
     def set_base(self, base_on: float, base_off: float, base_min_off_s: float) -> None:
         """Configured thresholds/min off time, the floor for everything learned."""
@@ -141,10 +150,11 @@ class AutoTuner:
     def control_thresholds(
         self, now: float, positions: Mapping[str, float | None]
     ) -> list[tuple[float, float]]:
-        """Thresholds for logic.decide, with the on delay applied.
+        """Thresholds for logic.decide, with the on delay and the early start applied.
 
         A valve that is above its on threshold for less than ON_DELAY_S gets an
         unreachable on threshold, so it keeps a running boiler on but cannot start it.
+        A valve that is rising fast gets its current position as on threshold.
         """
         result = []
         for valve, position in positions.items():
@@ -157,8 +167,29 @@ class AutoTuner:
                     learning.above_since = now
                 if now - learning.above_since < ON_DELAY_S:
                     on = float("inf")
+            if self._rising(learning, now, position):
+                self.rising.add(valve)
+                on = min(on, position)  # type: ignore[type-var]
+            else:
+                self.rising.discard(valve)
             result.append((on, off))
         return result
+
+    def _rising(self, learning: ValveLearning, now: float, position: float | None) -> bool:
+        """Climbed RISE_PCT within RISE_WINDOW_S, starting at least ON_DELAY_S ago."""
+        recent = learning.recent
+        if position is None:
+            recent.clear()
+            return False
+        recent.append((now, position))
+        while recent[0][0] < now - RISE_WINDOW_S:
+            recent.popleft()
+        low_at, low = min(recent, key=lambda item: (item[1], -item[0]))  # latest minimum
+        return (
+            position >= self.base_off
+            and position - low >= RISE_PCT
+            and now - low_at >= ON_DELAY_S
+        )
 
     def adopt(self, other: AutoTuner, replace: bool = False) -> list[str]:
         """Take holding levels from other (a history replay) where it learned more.
@@ -227,6 +258,7 @@ class AutoTuner:
         self.valves.clear()
         self.starts.clear()
         self.extra_min_off_s = 0.0
+        self.rising.clear()
         self.since = now
 
     def as_dict(self) -> dict[str, Any]:

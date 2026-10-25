@@ -147,7 +147,11 @@ class BoilerDemandController:
     def valve_thresholds(self, valve: str) -> tuple[float, float]:
         """(on, off) that currently apply to one valve."""
         if self.auto_tune:
-            return self.tuner.thresholds(valve)
+            on, off = self.tuner.thresholds(valve)
+            position = self.positions.get(valve)
+            if valve in self.tuner.rising and position is not None:
+                on = min(on, position)  # climbing fast: starts the boiler early
+            return on, off
         return self.settings.on_threshold, self.settings.off_threshold
 
     @property

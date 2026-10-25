@@ -93,6 +93,46 @@ def test_on_delay_blocks_start_for_three_minutes():
     assert math.isinf(t.control_thresholds(5 * MIN, {V: 45.0})[0][0])
 
 
+def test_ramping_valve_starts_early():
+    t = tuner()
+    t.load({"valves": {V: {"holding": 40, "samples": 9}}})  # on 50 / off 43
+    # A TRV ramping up 1.5 %/min from 14 %: early start once it climbed 8 % over 3+ min.
+    on_at = None
+    for i in range(20):
+        position = 14 + 1.5 * i
+        on, off = t.control_thresholds(i * MIN, {V: position})[0]
+        assert off == 43.0
+        if on <= position:
+            on_at = i
+            break
+    assert on_at == 6 and V in t.rising  # 23 %, 6 min after the climb began
+    # Steady again: back to the learned on threshold.
+    for i in range(7, 20):
+        t.control_thresholds(i * MIN, {V: 23.0})
+    assert V not in t.rising and t.control_thresholds(20 * MIN, {V: 23.0})[0] == (50.0, 43.0)
+
+
+def test_jump_or_slow_drift_does_not_start_early():
+    t = tuner()
+    t.load({"valves": {V: {"holding": 40, "samples": 9}}})
+    # Jump 20 -> 35 % (sampled every 30 s): like the on delay, it must hold for 3 min.
+    for i in range(3):
+        t.control_thresholds(i * STEP, {V: 20.0})
+    for i in range(3, 8):
+        assert t.control_thresholds(i * STEP, {V: 35.0})[0][0] == 50.0
+    assert t.control_thresholds(8 * STEP, {V: 35.0})[0][0] == 35.0
+    # Slow drift (0.5 %/min) never climbs 8 % within 10 min.
+    t2 = tuner()
+    t2.load({"valves": {V: {"holding": 40, "samples": 9}}})
+    for i in range(60):
+        assert t2.control_thresholds(i * MIN, {V: 17 + 0.5 * i})[0][0] >= 50.0 or 17 + 0.5 * i >= 50
+    # Below the configured off threshold a climb does not count.
+    t3 = tuner()
+    for i in range(10):
+        t3.control_thresholds(i * MIN, {V: 1.5 * i})
+    assert V not in t3.rising
+
+
 def test_decide_with_per_valve_thresholds():
     s = logic.Settings(19, 16, 0, 0, 30 * MIN, "on")
     # Valve 1 is at 35 %, above the global 19 % but below its own on threshold 40 %.

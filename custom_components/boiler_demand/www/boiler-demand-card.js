@@ -14,7 +14,7 @@
  * Boiler Demand device, with its "valve_opening" and "room_temperature" entities.
  */
 
-const CARD_VERSION = "0.8.1";
+const CARD_VERSION = "0.8.2";
 const DOMAIN = "boiler_demand";
 const MAIN_MODEL = "Valve-based boiler control";
 const ROOM_MODEL = "Room";
