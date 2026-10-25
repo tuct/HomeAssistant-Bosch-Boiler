@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .card import async_register_card
 from .const import DOMAIN
@@ -38,10 +39,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: BoilerDemandConfigEntry)
     """Set up Boiler Demand from a config entry."""
     controller = BoilerDemandController(hass, entry)
     entry.runtime_data = controller
-    # Register the main device first so room devices can link to it.
+    # Register the main device first so room devices can link to it; the integration
+    # version shows on the device page.
+    version = (await async_get_integration(hass, DOMAIN)).version
     controller.device_id = (
         dr.async_get(hass)
-        .async_get_or_create(config_entry_id=entry.entry_id, **main_device_info(entry))
+        .async_get_or_create(
+            config_entry_id=entry.entry_id,
+            sw_version=str(version) if version else None,
+            **main_device_info(entry),
+        )
         .id
     )
 

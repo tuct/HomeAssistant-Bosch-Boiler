@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import json
+from pathlib import Path
 
 import pytest
 
@@ -301,6 +302,8 @@ async def test_rooms_group_valve_and_temperature(setup_hass: HomeAssistant) -> N
     tobi = dev_reg.async_get(ent_reg.async_get(TOBI_SENSOR).device_id)
     assert ent_reg.async_get(TOBI_ROOM_TEMP).device_id == tobi.id
     assert tobi.name == "Heizung Tobi" and tobi.via_device_id == main.id
+    manifest = json.loads((Path(__file__).parents[1] / "custom_components" / DOMAIN / "manifest.json").read_text())
+    assert main.sw_version == manifest["version"]
     kuche = dev_reg.async_get(ent_reg.async_get(_room_entity(hass, entry, "valve", VALVES[0])).device_id)
     assert kuche.area_id == ar.async_get(hass).async_get_area_by_name("Küche").id
 
