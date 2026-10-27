@@ -14,7 +14,7 @@
  * Boiler Demand device, with its "valve_opening" and "room_temperature" entities.
  */
 
-const CARD_VERSION = "0.8.2";
+const CARD_VERSION = "0.8.3";
 const DOMAIN = "boiler_demand";
 const MAIN_MODEL = "Valve-based boiler control";
 const ROOM_MODEL = "Room";
@@ -1004,9 +1004,24 @@ class BoilerDemandHistoryCardEditor extends HTMLElement {
   }
 }
 
+const ELEMENTS = {
+  "boiler-demand-card": BoilerDemandCard,
+  "boiler-demand-card-editor": BoilerDemandCardEditor,
+  "boiler-demand-history-card": BoilerDemandHistoryCard,
+  "boiler-demand-history-card-editor": BoilerDemandHistoryCardEditor,
+};
+
+function defineElements() {
+  for (const [name, element] of Object.entries(ELEMENTS)) {
+    if (!customElements.get(name)) customElements.define(name, element);
+  }
+}
+
 if (!customElements.get("boiler-demand-card")) {
-  customElements.define("boiler-demand-card", BoilerDemandCard);
-  customElements.define("boiler-demand-card-editor", BoilerDemandCardEditor);
+  defineElements();
+  // The frontend can swap in its scoped custom element registry polyfill after this
+  // module ran; that registry does not know the cards ("Custom element doesn't exist").
+  customElements.whenDefined("home-assistant").then(defineElements);
   window.customCards = window.customCards || [];
   window.customCards.push({
     type: "boiler-demand-card",
@@ -1015,8 +1030,6 @@ if (!customElements.get("boiler-demand-card")) {
     preview: true,
     documentationURL: "https://github.com/tuct/HomeAssistant-Bosch-Boiler",
   });
-  customElements.define("boiler-demand-history-card", BoilerDemandHistoryCard);
-  customElements.define("boiler-demand-history-card-editor", BoilerDemandHistoryCardEditor);
   window.customCards.push({
     type: "boiler-demand-history-card",
     name: "Boiler Demand history",

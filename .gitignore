@@ -7,3 +7,7 @@ __pycache__/
 # Local dev Home Assistant: keep only the config file
 dev/config/*
 !dev/config/configuration.yaml
+
+# Local dev screenshots and token
+dev/screenshots/
+dev/.ha_token

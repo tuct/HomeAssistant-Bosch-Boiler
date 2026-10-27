@@ -8,7 +8,7 @@ waits too long for rooms that are cold.
 
 The tuner:
 - learns each valve's holding level while the boiler is on and the valve is steady,
-- derives per-valve thresholds from it (off just above the holding level, on clearly above),
+- derives per-valve thresholds from it (off at the holding level, on clearly above),
 - only lets a valve start the boiler once it stayed above its on threshold for a while,
 - starts early for a valve that keeps climbing fast (a TRV ramping up, e.g. after a
   morning setpoint change), from the configured off threshold on,
@@ -38,8 +38,10 @@ SMOOTHING = 0.2  # weight of a new sample in the moving average
 MIN_SAMPLES = 3  # samples before learned thresholds are used
 
 # Thresholds derived from the holding level h.
-OFF_MARGIN_PCT = 3.0  # off = h + 3
-ON_GAP_PCT = 7.0  # on = off + 7
+# A valve at its holding level still needs heat, so off is not above it: a higher off
+# threshold stopped the boiler while rooms were only holding (short morning runs).
+OFF_MARGIN_PCT = 0.0  # off = h
+ON_GAP_PCT = 10.0  # on = off + 10
 MAX_OFF_PCT = 60.0
 
 ON_DELAY_S = 3 * 60
@@ -176,7 +178,7 @@ class AutoTuner:
         return result
 
     def _rising(self, learning: ValveLearning, now: float, position: float | None) -> bool:
-        """Climbed RISE_PCT within RISE_WINDOW_S, starting at least ON_DELAY_S ago."""
+        """Climbed RISE_PCT within RISE_WINDOW_S, starting at least ON_DELAY_S ago, and still at its high."""
         recent = learning.recent
         if position is None:
             recent.clear()
@@ -185,8 +187,10 @@ class AutoTuner:
         while recent[0][0] < now - RISE_WINDOW_S:
             recent.popleft()
         low_at, low = min(recent, key=lambda item: (item[1], -item[0]))  # latest minimum
+        high = max(p for _, p in recent)
         return (
             position >= self.base_off
+            and position >= high  # falling back from a peak is not a ramp
             and position - low >= RISE_PCT
             and now - low_at >= ON_DELAY_S
         )

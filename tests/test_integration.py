@@ -320,7 +320,7 @@ async def test_card_is_served(setup_hass: HomeAssistant, hass_client) -> None:
     response = await client.get("/boiler_demand/boiler-demand-card.js")
     assert response.status == 200
     body = await response.text()
-    assert 'customElements.define("boiler-demand-card"' in body
+    assert '"boiler-demand-card": BoilerDemandCard' in body
     # Status sensor tells the card which relay to show.
     assert hass.states.get("sensor.heating_status").attributes["boiler_switch"] == BOILER
 
@@ -368,7 +368,7 @@ async def test_auto_tune_uses_learned_thresholds(setup_hass: HomeAssistant, free
     await hass.async_block_till_done()
     state = hass.states.get(holding)
     assert state.state == "30.0"
-    assert state.attributes["on_threshold"] == 40 and state.attributes["off_threshold"] == 33
+    assert state.attributes["on_threshold"] == 40 and state.attributes["off_threshold"] == 30
 
     # 35 % is above the configured on threshold (25) but below Kueche's own (40).
     await _set_valves(hass, "35", "0")
@@ -381,7 +381,7 @@ async def test_auto_tune_uses_learned_thresholds(setup_hass: HomeAssistant, free
     await _tick(hass, freezer, timedelta(minutes=3, seconds=30))
     assert hass.states.get(BOILER).state == "on"
 
-    # Back at its holding level (below 33 %) the room is warm: boiler off.
+    # Back down to its holding level (30 %): boiler off.
     await _set_valves(hass, "30", "0")
     assert hass.states.get(BOILER).state == "off"
 

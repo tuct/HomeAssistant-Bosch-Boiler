@@ -35,6 +35,10 @@ Then: Settings → Devices & services → Add integration → *Boiler Demand*.
 
 Everything can be changed later under *Configure*. Disable any old automations that switch the boiler.
 
+![Integration page](images/config-integration.png)
+
+![Options dialog](images/config-options.png)
+
 ## Entities
 
 | Entity | Purpose |
@@ -51,6 +55,8 @@ Everything can be changed later under *Configure*. Disable any old automations t
 | `button.<name>_reset_auto_tune_learning` | Forget everything learned, e.g. after changing radiators or valves |
 | `button.<name>_learn_auto_tune_from_history_7_days` | Re-learn all valves from the recorder's last 7 days |
 | `sensor.<name>_effective_minimum_off_time` | Minimum off time in effect, including what auto-tune added |
+
+![Boiler Demand device](images/device.png)
 
 ### Rooms
 
@@ -72,6 +78,8 @@ Edit a dashboard → *Add card* → **Boiler Demand** / **Boiler Demand history*
 
 ### Boiler Demand – current state
 
+![Boiler Demand card](images/card.png)
+
 ```yaml
 type: custom:boiler-demand-card
 device_id: <Boiler Demand device>  # optional, defaults to the first one
@@ -88,6 +96,8 @@ threshold chips read *≥*, because they are only the lower limit. ⚠ marks a v
 Rooms are found automatically; tap anything for its details, tap *Automatic* / *Auto-tune* to toggle.
 
 ### Boiler Demand history – last 24 h / 7 days
+
+![Boiler Demand history card](images/history-card.png)
 
 ```yaml
 type: custom:boiler-demand-history-card
@@ -178,8 +188,8 @@ for rooms that are cold.
 
 | | Rule | Example: holding 30 % |
 | --- | --- | --- |
-| Off threshold per valve | holding + 3 %, max 60 % | 33 % – valve is back at "warm enough" |
-| On threshold per valve | off + 7 % | 40 % – room is clearly asking for more |
+| Off threshold per valve | the holding level, max 60 % | 30 % – a room that is only holding keeps a running boiler on; off once it needs less |
+| On threshold per valve | off + 10 % | 40 % – room is clearly asking for more |
 | Floor | never below the configured on / off thresholds | |
 | On delay | a valve must stay above its on threshold for 3 min before it may start the boiler (it keeps a running boiler on immediately) | filters short spikes after a window was opened |
 | Early start | a valve that climbed 8 % within 10 min, over at least 3 min, starts the boiler right away once it is above the configured off threshold | a TRV ramping up in the morning at 19 % starts the boiler then, not at 40 % |
@@ -393,6 +403,16 @@ temperatures are synthesised and the learned holding levels are pre-filled:
 docker compose -f dev/docker-compose.yml stop
 python dev/seed_history.py history.csv
 docker compose -f dev/docker-compose.yml start
+```
+
+Screenshots of the integration page, the options dialog, the cards (dashboard `dashboard-test`) and the
+main device go to `dev/screenshots/` (needs [uv](https://docs.astral.sh/uv/); create a long-lived
+access token in the dev instance once and save it in `dev/.ha_token`). The ones in this README are
+`--lang en`, copied to `images/`:
+
+```
+uv run dev/screenshots.py --lang en
+uv run dev/screenshots.py --dark --lang de --width 420
 ```
 
 ### Tests

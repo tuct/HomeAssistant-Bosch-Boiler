@@ -48,7 +48,7 @@ def test_learns_holding_level_from_steady_valve():
     assert t.valves[V].samples == 0  # window not full yet
     feed(t, 0, 70, 30.0)
     assert t.holding(V) == 30.0
-    assert t.thresholds(V) == (40.0, 33.0)
+    assert t.thresholds(V) == (40.0, 30.0)
 
 
 def test_uses_configured_thresholds_until_enough_samples():
@@ -74,9 +74,9 @@ def test_no_learning_while_boiler_off_or_valve_moving_or_wide_open():
 def test_learned_thresholds_never_below_configured():
     t = tuner()
     t.load({"valves": {V: {"holding": 5, "samples": 9}}})
-    assert t.thresholds(V) == (23.0, 16)  # off = max(16, 8), on = off + 7
+    assert t.thresholds(V) == (26.0, 16)  # off = max(16, 5), on = off + 10
     t.load({"valves": {V: {"holding": 80, "samples": 9}}})
-    assert t.thresholds(V) == (67.0, 60.0)  # off capped at 60
+    assert t.thresholds(V) == (70.0, 60.0)  # off capped at 60
 
 
 # --- on delay -------------------------------------------------------------
@@ -85,9 +85,9 @@ def test_on_delay_blocks_start_for_three_minutes():
     t = tuner()
     t.load({"valves": {V: {"holding": 30, "samples": 9}}})
     on, off = t.control_thresholds(0, {V: 45.0})[0]
-    assert math.isinf(on) and off == 33.0
+    assert math.isinf(on) and off == 30.0
     assert math.isinf(t.control_thresholds(2.5 * MIN, {V: 45.0})[0][0])
-    assert t.control_thresholds(3 * MIN, {V: 45.0})[0] == (40.0, 33.0)
+    assert t.control_thresholds(3 * MIN, {V: 45.0})[0] == (40.0, 30.0)
     # Dropping below resets the delay.
     t.control_thresholds(4 * MIN, {V: 35.0})
     assert math.isinf(t.control_thresholds(5 * MIN, {V: 45.0})[0][0])
@@ -95,13 +95,13 @@ def test_on_delay_blocks_start_for_three_minutes():
 
 def test_ramping_valve_starts_early():
     t = tuner()
-    t.load({"valves": {V: {"holding": 40, "samples": 9}}})  # on 50 / off 43
+    t.load({"valves": {V: {"holding": 40, "samples": 9}}})  # on 50 / off 40
     # A TRV ramping up 1.5 %/min from 14 %: early start once it climbed 8 % over 3+ min.
     on_at = None
     for i in range(20):
         position = 14 + 1.5 * i
         on, off = t.control_thresholds(i * MIN, {V: position})[0]
-        assert off == 43.0
+        assert off == 40.0
         if on <= position:
             on_at = i
             break
@@ -109,7 +109,7 @@ def test_ramping_valve_starts_early():
     # Steady again: back to the learned on threshold.
     for i in range(7, 20):
         t.control_thresholds(i * MIN, {V: 23.0})
-    assert V not in t.rising and t.control_thresholds(20 * MIN, {V: 23.0})[0] == (50.0, 43.0)
+    assert V not in t.rising and t.control_thresholds(20 * MIN, {V: 23.0})[0] == (50.0, 40.0)
 
 
 def test_jump_or_slow_drift_does_not_start_early():
@@ -131,6 +131,17 @@ def test_jump_or_slow_drift_does_not_start_early():
     for i in range(10):
         t3.control_thresholds(i * MIN, {V: 1.5 * i})
     assert V not in t3.rising
+
+
+def test_falling_back_from_a_peak_is_not_rising():
+    t = tuner()
+    t.load({"valves": {V: {"holding": 40, "samples": 9}}})  # on 50 / off 40
+    for i in range(8):
+        t.control_thresholds(i * MIN, {V: 14 + 1.5 * i})  # ramps to 24.5 %
+    assert V in t.rising
+    # Back down to 22 %: still 8 % above the low, but no longer climbing.
+    assert t.control_thresholds(8 * MIN, {V: 22.0})[0] == (50.0, 40.0)
+    assert V not in t.rising
 
 
 def test_decide_with_per_valve_thresholds():
